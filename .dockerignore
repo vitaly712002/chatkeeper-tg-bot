@@ -1,0 +1,8 @@
+bin/
+data/
+deploy/.env
+.git/
+*.md
+docs/
+frontend/node_modules/
+frontend/dist/

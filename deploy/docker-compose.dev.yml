@@ -1,0 +1,21 @@
+# Дев-стек: поднимает ТОЛЬКО PostgreSQL, чтобы бота запускать локально
+# из исходников (go run ./cmd/bot) в режиме polling.
+#
+# Запуск:  docker compose -f docker-compose.dev.yml up -d
+# Тогда локально:  DB_URL=postgres://chatkeeper:chatkeeper@localhost:5432/chatkeeper?sslmode=disable
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chatkeeper
+      POSTGRES_PASSWORD: chatkeeper
+      POSTGRES_DB: chatkeeper
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+
+volumes:
+  pgdata_dev:

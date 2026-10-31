@@ -1,0 +1,19 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    # Откуда брать SQL-запросы (с магическими комментариями -- name: ...).
+    queries: "internal/storage/queries"
+    # Откуда брать схему таблиц (миграции goose).
+    schema: "internal/storage/migrations"
+    gen:
+      go:
+        # Имя Go-пакета для сгенерированного кода.
+        package: "gen"
+        # Куда класть сгенерированные .go файлы.
+        out: "internal/storage/gen"
+        # Используем драйвер pgx/v5 (а не стандартный database/sql).
+        sql_package: "pgx/v5"
+        # Генерировать интерфейс Querier — удобно для тестов/моков.
+        emit_interface: true
+        # Пустые значения -> указатели (*string), чтобы отличать "" от NULL.
+        emit_pointers_for_null_types: true
