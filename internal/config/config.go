@@ -76,6 +76,11 @@ type Config struct {
 
 	// JWTTTL — время жизни токена авторизации.
 	JWTTTL time.Duration `env:"JWT_TTL" envDefault:"24h"`
+
+	// WebDir — папка с собранной веб-панелью (frontend/dist). Если задана,
+	// тот же HTTP-сервер отдаёт статику панели (SPA) помимо /api.
+	// Пусто — панель не раздаётся (например, при локальной разработке через Vite).
+	WebDir string `env:"WEB_DIR" envDefault:""`
 }
 
 // EncryptionKey декодирует hex-ключ в 32 байта и проверяет его длину.

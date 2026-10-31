@@ -43,8 +43,8 @@ db-down: ## Остановить локальную PostgreSQL
 	docker compose -f deploy/docker-compose.dev.yml down
 
 .PHONY: deploy
-deploy: ## Собрать и запустить прод-стек
-	cd deploy && docker compose --env-file .env up -d --build
+deploy: ## Собрать и запустить прод-стек (нужна сеть: docker network create web)
+	cd deploy && docker compose -p chatkeeper --env-file .env up -d --build
 
 .PHONY: genkey
 genkey: ## Сгенерировать новый ключ шифрования (ENCRYPTION_KEY)

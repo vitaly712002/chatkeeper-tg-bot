@@ -1,28 +1,34 @@
-# --- Этап 1: сборка ---
-# Собираем статический бинарник в полном образе с Go.
+# --- Этап 1: сборка веб-панели (React/Vite) ---
+FROM node:20-alpine AS web
+WORKDIR /web
+# Сначала манифесты — чтобы слой с npm ci кешировался.
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build          # результат -> /web/dist
+
+# --- Этап 2: сборка бота (Go) ---
 FROM golang:1.26-alpine AS builder
-
 WORKDIR /src
-
-# Сначала копируем только файлы модулей и качаем зависимости — так Docker
-# закеширует этот слой и не будет перекачивать всё при каждом изменении кода.
+# Кешируемый слой зависимостей.
 COPY go.mod go.sum ./
 RUN go mod download
-
-# Теперь копируем исходники и собираем.
 COPY . .
-# CGO_ENABLED=0 -> полностью статический бинарник без внешних библиотек,
-# чтобы он запускался в минимальном distroless-образе.
+# CGO_ENABLED=0 -> статический бинарник для distroless.
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bot ./cmd/bot
 
-# --- Этап 2: запуск ---
-# distroless: крошечный образ без shell и лишних пакетов -> меньше уязвимостей.
-# :nonroot -> контейнер работает не от root (безопаснее).
+# --- Этап 3: финальный образ ---
+# distroless: без shell и лишних пакетов; :nonroot -> запуск не от root.
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=builder /bot /bot
+# Собранная веб-панель; путь совпадает с WEB_DIR по умолчанию ниже.
+COPY --from=web /web/dist /web
 
 # Папка для сохранённых медиа (должна совпадать с MEDIA_DIR).
 VOLUME ["/data"]
+
+# По умолчанию внутри контейнера панель раздаётся из /web.
+ENV WEB_DIR=/web
 
 ENTRYPOINT ["/bot"]

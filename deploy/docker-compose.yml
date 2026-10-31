@@ -1,5 +1,10 @@
-# Прод-стек: бот + PostgreSQL + Caddy (автоматический HTTPS).
-# Запуск:  docker compose --env-file .env up -d --build
+# Прод-стек chatkeeper. Самодостаточен: свой бот + своя база.
+# Caddy НЕ входит сюда — им занимается отдельный проект edge.
+#
+# Требуется общая сеть edge (один раз на сервер): docker network create web
+#
+# Запуск:
+#   docker compose -p chatkeeper --env-file .env up -d --build
 
 services:
   db:
@@ -11,8 +16,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal          # только для связи с ботом, наружу не видна
     healthcheck:
-      # Бот стартует только когда база готова принимать подключения.
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
@@ -25,31 +31,25 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      # Внутри compose база доступна по имени сервиса "db".
       DB_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
     volumes:
       - media:/data/media
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      internal: {}
+      web:
+        # По этому имени edge (Caddy) обращается к боту.
+        aliases:
+          - chatkeeper
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      DOMAIN: ${DOMAIN}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - bot
+networks:
+  internal: {}
+  # Общая сеть edge. Создаётся вручную: docker network create web
+  web:
+    external: true
 
 volumes:
-  pgdata:
-  media:
-  caddy_data:
-  caddy_config:
+  pgdata: {}
+  media: {}

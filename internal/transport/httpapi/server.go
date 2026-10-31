@@ -45,6 +45,13 @@ func New(cfg config.Config, vault *service.Vault, b *bot.Bot, log *slog.Logger) 
 	// Медиа: токен может прийти в query (?t=...), т.к. <img> не шлёт заголовки.
 	mux.Handle("GET /api/media/{fileId}", s.auth(http.HandlerFunc(s.handleMedia)))
 
+	// Отдача веб-панели (SPA), если задана папка со сборкой. Паттерн "/" ловит
+	// всё, что не совпало с более конкретными /api/* маршрутами выше.
+	if cfg.WebDir != "" {
+		mux.Handle("/", staticHandler(cfg.WebDir))
+		log.Info("раздача веб-панели включена", "dir", cfg.WebDir)
+	}
+
 	s.http = &http.Server{
 		Addr:              cfg.APIAddr,
 		Handler:           mux,
