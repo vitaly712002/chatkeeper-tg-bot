@@ -469,3 +469,157 @@ func (q *Queries) UpdateMessageText(ctx context.Context, arg UpdateMessageTextPa
 	_, err := q.db.Exec(ctx, updateMessageText, arg.ID, arg.EncryptedText)
 	return err
 }
+
+const listChatsByConnection = `-- name: ListChatsByConnection :many
+SELECT
+    t.chat_id AS chat_id,
+    COUNT(*) AS msg_count,
+    COUNT(*) FILTER (WHERE t.deleted_at IS NOT NULL) AS deleted_count,
+    MAX(t.sent_at) AS last_at,
+    COALESCE(
+        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        'Собеседник'
+    ) AS partner_name,
+    COALESCE(
+        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        'Вы'
+    ) AS owner_name,
+    (SELECT t3.encrypted_text FROM tracked_messages t3
+        WHERE t3.connection_id = t.connection_id AND t3.chat_id = t.chat_id ORDER BY t3.sent_at DESC LIMIT 1) AS last_encrypted_text,
+    (SELECT t4.media_type FROM tracked_messages t4
+        WHERE t4.connection_id = t.connection_id AND t4.chat_id = t.chat_id ORDER BY t4.sent_at DESC LIMIT 1) AS last_media_type
+FROM tracked_messages t
+WHERE t.connection_id = $1
+GROUP BY t.connection_id, t.chat_id
+ORDER BY last_at DESC
+`
+
+func (q *Queries) ListChatsByConnection(ctx context.Context, connectionID string) ([]ListChatsRow, error) {
+	rows, err := q.db.Query(ctx, listChatsByConnection, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChatsRow
+	for rows.Next() {
+		var i ListChatsRow
+		if err := rows.Scan(
+			&i.ChatID,
+			&i.MsgCount,
+			&i.DeletedCount,
+			&i.LastAt,
+			&i.PartnerName,
+			&i.OwnerName,
+			&i.LastEncryptedText,
+			&i.LastMediaType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentMessagesByConn = `-- name: ListRecentMessagesByConn :many
+SELECT
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
+    EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
+FROM tracked_messages tm
+WHERE tm.connection_id = $1 AND tm.chat_id = $2
+ORDER BY tm.id DESC
+LIMIT $3
+`
+
+type ListRecentMessagesByConnParams struct {
+	ConnectionID string
+	ChatID       int64
+	Limit        int32
+}
+
+func (q *Queries) ListRecentMessagesByConn(ctx context.Context, arg ListRecentMessagesByConnParams) ([]ListRecentMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listRecentMessagesByConn, arg.ConnectionID, arg.ChatID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecentMessagesRow
+	for rows.Next() {
+		var i ListRecentMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.SenderName,
+			&i.RecipientName,
+			&i.IsOutgoing,
+			&i.EncryptedText,
+			&i.MediaType,
+			&i.FileID,
+			&i.SentAt,
+			&i.DeletedAt,
+			&i.Edited,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMessagesBeforeByConn = `-- name: ListMessagesBeforeByConn :many
+SELECT
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
+    EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
+FROM tracked_messages tm
+WHERE tm.connection_id = $1 AND tm.chat_id = $2 AND tm.id < $3
+ORDER BY tm.id DESC
+LIMIT $4
+`
+
+type ListMessagesBeforeByConnParams struct {
+	ConnectionID string
+	ChatID       int64
+	ID           int64
+	Limit        int32
+}
+
+func (q *Queries) ListMessagesBeforeByConn(ctx context.Context, arg ListMessagesBeforeByConnParams) ([]ListMessagesBeforeRow, error) {
+	rows, err := q.db.Query(ctx, listMessagesBeforeByConn, arg.ConnectionID, arg.ChatID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMessagesBeforeRow
+	for rows.Next() {
+		var i ListMessagesBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.SenderName,
+			&i.RecipientName,
+			&i.IsOutgoing,
+			&i.EncryptedText,
+			&i.MediaType,
+			&i.FileID,
+			&i.SentAt,
+			&i.DeletedAt,
+			&i.Edited,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

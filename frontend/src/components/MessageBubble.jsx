@@ -1,5 +1,14 @@
-import React from 'react';
-import { Trash2, Pencil, FileText, Mic, Film, Image as ImageIcon } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Trash2,
+  Pencil,
+  FileText,
+  Mic,
+  Film,
+  Image as ImageIcon,
+  Download,
+  Loader2,
+} from 'lucide-react';
 import { getMediaUrl } from '../api';
 
 // Один «пузырь» сообщения. Ожидаемая форма:
@@ -75,22 +84,88 @@ export default function MessageBubble({ msg, onShowEdits, fallbackOwner, fallbac
   );
 }
 
-// Отображение медиа. Фото/видео показываем, остальное — иконкой со ссылкой.
+// Отображение медиа. По умолчанию ленивое: показывается плашка с кнопкой загрузки,
+// и только при клике медиа запрашивается и скачивается с сервера.
 function MediaView({ type, fileId }) {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
   const url = getMediaUrl(fileId);
 
-  if (type === 'photo') {
+  if (!isLoaded) {
+    const Icon = iconFor(type);
+    const label = labelFor(type);
+
     return (
-      <a href={url} target="_blank" rel="noreferrer">
-        <img src={url} alt="фото" className="rounded-xl max-h-72 mb-1.5 object-cover" />
-      </a>
+      <button
+        type="button"
+        onClick={() => {
+          setLoading(true);
+          setIsLoaded(true);
+        }}
+        className="w-full max-w-sm flex items-center justify-between gap-3 px-3 py-2.5 my-1.5 rounded-xl bg-slate-900/60 hover:bg-slate-900/80 border border-slate-700/60 hover:border-indigo-500/50 transition-all text-left group cursor-pointer"
+        title="Нажмите для загрузки"
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center shrink-0 group-hover:bg-indigo-600/30 group-hover:text-indigo-300 transition-colors">
+            <Icon className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-slate-200 group-hover:text-indigo-200 transition-colors truncate">
+              {label}
+            </div>
+            <div className="text-[10px] text-slate-400">Нажмите для загрузки</div>
+          </div>
+        </div>
+
+        <div className="shrink-0 text-slate-400 group-hover:text-indigo-300 transition-colors">
+          <Download className="w-4 h-4" />
+        </div>
+      </button>
     );
   }
-  if (type === 'video' || type === 'video_note' || type === 'animation') {
-    return <video src={url} controls className="rounded-xl max-h-72 mb-1.5" />;
+
+  if (type === 'photo' || type === 'sticker') {
+    return (
+      <div className="relative my-1.5">
+        {loading && (
+          <div className="w-48 h-36 rounded-xl bg-slate-900/60 flex items-center justify-center text-xs text-slate-400 animate-pulse">
+            <Loader2 className="w-4 h-4 animate-spin text-indigo-400 mr-2" /> Загрузка…
+          </div>
+        )}
+        <a href={url} target="_blank" rel="noreferrer">
+          <img
+            src={url}
+            alt={labelFor(type)}
+            onLoad={() => setLoading(false)}
+            onError={() => setLoading(false)}
+            className={`rounded-xl max-h-72 w-auto object-cover hover:opacity-95 transition-opacity ${
+              loading ? 'hidden' : 'block'
+            }`}
+          />
+        </a>
+      </div>
+    );
   }
+
+  if (type === 'video' || type === 'video_note' || type === 'animation') {
+    return (
+      <div className="my-1.5">
+        <video
+          src={url}
+          controls
+          autoPlay
+          className="rounded-xl max-h-72 w-auto"
+        />
+      </div>
+    );
+  }
+
   if (type === 'voice' || type === 'audio') {
-    return <audio src={url} controls className="mb-1.5 w-56 max-w-full" />;
+    return (
+      <div className="my-1.5">
+        <audio src={url} controls autoPlay className="w-64 max-w-full" />
+      </div>
+    );
   }
 
   const Icon = iconFor(type);
@@ -99,7 +174,7 @@ function MediaView({ type, fileId }) {
       href={url}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200 mb-1"
+      className="inline-flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200 my-1 px-3 py-2 rounded-xl bg-slate-900/60 border border-slate-700/60"
     >
       <Icon className="w-4 h-4" /> {labelFor(type)}
     </a>
@@ -115,9 +190,14 @@ function iconFor(type) {
 
 function labelFor(type) {
   const map = {
+    photo: 'Фото',
     document: 'Документ',
     sticker: 'Стикер',
     audio: 'Аудио',
+    voice: 'Голосовое сообщение',
+    video: 'Видео',
+    video_note: 'Видеосообщение',
+    animation: 'GIF анимация',
   };
   return map[type] || `Вложение (${type})`;
 }

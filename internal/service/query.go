@@ -13,6 +13,17 @@ import (
 // Этот файл — «витрина» данных для веб-API: методы, которые достают из базы
 // уже расшифрованные и готовые к показу структуры.
 
+// UserSummary — аккаунт Telegram Business (пользователь бота).
+type UserSummary struct {
+	ConnectionID  string    `json:"connection_id"`
+	UserID        int64     `json:"user_id"`
+	UserName      string    `json:"user_name"`
+	IsEnabled     bool      `json:"is_enabled"`
+	ChatsCount    int64     `json:"chats_count"`
+	MessagesCount int64     `json:"messages_count"`
+	LastAt        time.Time `json:"last_at"`
+}
+
 // ChatSummary — строка в списке диалогов.
 type ChatSummary struct {
 	ChatID       int64     `json:"chat_id"`
@@ -55,9 +66,39 @@ type Stats struct {
 	Storage       *StorageInfo `json:"storage,omitempty"`
 }
 
+// ListUsers возвращает список подключённых аккаунтов Telegram Business.
+func (v *Vault) ListUsers(ctx context.Context) ([]UserSummary, error) {
+	rows, err := v.store.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]UserSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, UserSummary{
+			ConnectionID:  r.ConnectionID,
+			UserID:        r.UserID,
+			UserName:      r.UserName,
+			IsEnabled:     r.IsEnabled,
+			ChatsCount:    r.ChatsCount,
+			MessagesCount: r.MessagesCount,
+			LastAt:        asTime(r.LastAt),
+		})
+	}
+	return out, nil
+}
+
 // ListChats возвращает список диалогов с превью последнего сообщения.
-func (v *Vault) ListChats(ctx context.Context) ([]ChatSummary, error) {
-	rows, err := v.store.ListChats(ctx)
+// Если connectionID задан, фильтрует только чаты этого пользователя/аккаунта.
+func (v *Vault) ListChats(ctx context.Context, connectionID string) ([]ChatSummary, error) {
+	var (
+		rows []gen.ListChatsRow
+		err  error
+	)
+	if connectionID != "" {
+		rows, err = v.store.ListChatsByConnection(ctx, connectionID)
+	} else {
+		rows, err = v.store.ListChats(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -97,31 +138,57 @@ func (v *Vault) ListChats(ctx context.Context) ([]ChatSummary, error) {
 
 // ListMessages возвращает сообщения чата в хронологическом порядке (старые сверху).
 // before=0 — последние сообщения; before>0 — более ранние, чем это id.
-func (v *Vault) ListMessages(ctx context.Context, chatID int64, limit int32, before int64) ([]MessageView, error) {
+func (v *Vault) ListMessages(ctx context.Context, connectionID string, chatID int64, limit int32, before int64) ([]MessageView, error) {
 	var (
 		views []MessageView
 		err   error
 	)
-	if before > 0 {
-		var rows []gen.ListMessagesBeforeRow
-		rows, err = v.store.ListMessagesBefore(ctx, gen.ListMessagesBeforeParams{
-			ChatID: chatID, ID: before, Limit: limit,
-		})
-		if err == nil {
-			views = make([]MessageView, 0, len(rows))
-			for _, r := range rows {
-				views = append(views, v.toMessageView(messageRow(r)))
+	if connectionID != "" {
+		if before > 0 {
+			var rows []gen.ListMessagesBeforeRow
+			rows, err = v.store.ListMessagesBeforeByConn(ctx, gen.ListMessagesBeforeByConnParams{
+				ConnectionID: connectionID, ChatID: chatID, ID: before, Limit: limit,
+			})
+			if err == nil {
+				views = make([]MessageView, 0, len(rows))
+				for _, r := range rows {
+					views = append(views, v.toMessageView(messageRow(r)))
+				}
+			}
+		} else {
+			var rows []gen.ListRecentMessagesRow
+			rows, err = v.store.ListRecentMessagesByConn(ctx, gen.ListRecentMessagesByConnParams{
+				ConnectionID: connectionID, ChatID: chatID, Limit: limit,
+			})
+			if err == nil {
+				views = make([]MessageView, 0, len(rows))
+				for _, r := range rows {
+					views = append(views, v.toMessageView(r))
+				}
 			}
 		}
 	} else {
-		var rows []gen.ListRecentMessagesRow
-		rows, err = v.store.ListRecentMessages(ctx, gen.ListRecentMessagesParams{
-			ChatID: chatID, Limit: limit,
-		})
-		if err == nil {
-			views = make([]MessageView, 0, len(rows))
-			for _, r := range rows {
-				views = append(views, v.toMessageView(r))
+		if before > 0 {
+			var rows []gen.ListMessagesBeforeRow
+			rows, err = v.store.ListMessagesBefore(ctx, gen.ListMessagesBeforeParams{
+				ChatID: chatID, ID: before, Limit: limit,
+			})
+			if err == nil {
+				views = make([]MessageView, 0, len(rows))
+				for _, r := range rows {
+					views = append(views, v.toMessageView(messageRow(r)))
+				}
+			}
+		} else {
+			var rows []gen.ListRecentMessagesRow
+			rows, err = v.store.ListRecentMessages(ctx, gen.ListRecentMessagesParams{
+				ChatID: chatID, Limit: limit,
+			})
+			if err == nil {
+				views = make([]MessageView, 0, len(rows))
+				for _, r := range rows {
+					views = append(views, v.toMessageView(r))
+				}
 			}
 		}
 	}

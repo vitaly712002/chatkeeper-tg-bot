@@ -2,37 +2,73 @@ import React, { useState, useEffect } from 'react';
 import { MessageSquare, Trash2, Pencil, Users, HardDrive } from 'lucide-react';
 import Navbar, { formatBytes } from './components/Navbar';
 import LoginPage from './components/LoginPage';
+import UserList from './components/UserList';
 import ChatList from './components/ChatList';
 import ChatView from './components/ChatView';
 import StatCard from './components/StatCard';
-import { getCurrentUser, logout, getChats, getStats } from './api';
+import { getCurrentUser, logout, getUsers, getChats, getStats } from './api';
 
 export default function App() {
   const [user, setUser] = useState(getCurrentUser());
   const [activeTab, setActiveTab] = useState('chats');
 
+  // Пользователи (подключённые аккаунты)
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [selectedConnectionId, setSelectedConnectionId] = useState(null);
+
+  // Чаты выбранного пользователя
   const [chats, setChats] = useState([]);
   const [chatsLoading, setChatsLoading] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState(null);
 
+  // Общая статистика
   const [stats, setStats] = useState(null);
 
-  // Загрузка данных после входа.
+  // 1. Первичная загрузка списка пользователей и общей статистики после авторизации
   useEffect(() => {
     if (!user) return;
-    setChatsLoading(true);
-    getChats()
-      .then((data) => setChats(Array.isArray(data) ? data : []))
-      .catch(() => setChats([]))
-      .finally(() => setChatsLoading(false));
+    setUsersLoading(true);
+    getUsers()
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        setUsers(list);
+        // По умолчанию выбираем первого пользователя
+        if (list.length > 0 && !selectedConnectionId) {
+          setSelectedConnectionId(list[0].connection_id);
+        }
+      })
+      .catch(() => setUsers([]))
+      .finally(() => setUsersLoading(false));
+
     getStats()
       .then(setStats)
       .catch(() => setStats(null));
   }, [user]);
 
+  // 2. Ленивая подгрузка чатов ТОЛЬКО для выбранного пользователя
+  useEffect(() => {
+    if (!selectedConnectionId) {
+      setChats([]);
+      setSelectedChatId(null);
+      return;
+    }
+    setChatsLoading(true);
+    setSelectedChatId(null); // Сбрасываем выбранный чат при переключении пользователя
+    getChats(selectedConnectionId)
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        setChats(list);
+      })
+      .catch(() => setChats([]))
+      .finally(() => setChatsLoading(false));
+  }, [selectedConnectionId]);
+
   const handleLogout = () => {
     logout();
     setUser(null);
+    setUsers([]);
+    setSelectedConnectionId(null);
     setChats([]);
     setSelectedChatId(null);
     setStats(null);
@@ -42,6 +78,7 @@ export default function App() {
     return <LoginPage onLoginSuccess={(u) => setUser(u)} />;
   }
 
+  const selectedUser = users.find((u) => u.connection_id === selectedConnectionId);
   const selectedChat = chats.find((c) => String(c.chat_id) === String(selectedChatId));
 
   return (
@@ -55,22 +92,35 @@ export default function App() {
       />
 
       {activeTab === 'chats' && (
-        <main className="flex-1 min-h-0 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <main className="flex-1 min-h-0 max-w-7xl w-full mx-auto px-2 sm:px-4 lg:px-6 py-4">
           <div className="h-full flex rounded-2xl border border-slate-800 overflow-hidden bg-slate-900/40">
-            {/* Список чатов */}
-            <aside className="w-80 shrink-0 border-r border-slate-800 overflow-y-auto">
+            {/* Колонка 1: Пользователи (аккаунты Telegram Business) */}
+            <aside className="w-52 sm:w-60 shrink-0 overflow-hidden flex flex-col">
+              <UserList
+                users={users}
+                selectedConnectionId={selectedConnectionId}
+                onSelect={setSelectedConnectionId}
+                loading={usersLoading}
+              />
+            </aside>
+
+            {/* Колонка 2: Чаты выбранного пользователя */}
+            <aside className="w-64 sm:w-80 shrink-0 overflow-hidden flex flex-col">
               <ChatList
                 chats={chats}
                 loading={chatsLoading}
                 selectedChatId={selectedChatId}
                 onSelect={setSelectedChatId}
+                selectedUserName={selectedUser?.user_name}
               />
             </aside>
-            {/* Лента сообщений */}
+
+            {/* Колонка 3: Сообщения выбранного чата */}
             <ChatView
               chatId={selectedChatId}
+              connectionId={selectedConnectionId}
               chatTitle={selectedChat?.title}
-              ownerName={selectedChat?.owner_name}
+              ownerName={selectedChat?.owner_name || selectedUser?.user_name}
               partnerName={selectedChat?.partner_name}
             />
           </div>

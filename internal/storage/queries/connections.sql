@@ -21,3 +21,22 @@ SELECT * FROM business_connections WHERE user_id = $1 ORDER BY updated_at DESC L
 
 -- name: SetConnectionEnabled :exec
 UPDATE business_connections SET is_enabled = $2, updated_at = NOW() WHERE id = $1;
+
+-- name: ListUsers :many
+-- Список подключённых аккаунтов Telegram Business с агрегированной статистикой.
+SELECT
+    bc.id AS connection_id,
+    bc.user_id,
+    COALESCE(
+        NULLIF(bc.user_name, ''),
+        NULLIF((SELECT tm.sender_name FROM tracked_messages tm WHERE tm.connection_id = bc.id AND tm.is_outgoing = TRUE ORDER BY tm.sent_at DESC LIMIT 1), ''),
+        CONCAT('User ', bc.user_id)
+    ) AS user_name,
+    bc.is_enabled,
+    COUNT(DISTINCT tm.chat_id) AS chats_count,
+    COUNT(tm.id) AS messages_count,
+    MAX(tm.sent_at) AS last_at
+FROM business_connections bc
+LEFT JOIN tracked_messages tm ON tm.connection_id = bc.id
+GROUP BY bc.id, bc.user_id, bc.user_name, bc.is_enabled
+ORDER BY last_at DESC NULLS LAST;

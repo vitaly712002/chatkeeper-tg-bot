@@ -7,7 +7,7 @@ import EditHistory from './EditHistory';
 const PAGE = 50;
 
 // Правая колонка — лента сообщений выбранного чата.
-export default function ChatView({ chatId, chatTitle, ownerName, partnerName }) {
+export default function ChatView({ chatId, connectionId, chatTitle, ownerName, partnerName }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -15,13 +15,13 @@ export default function ChatView({ chatId, chatTitle, ownerName, partnerName }) 
   const [editTarget, setEditTarget] = useState(null); // сообщение для модалки правок
   const bottomRef = useRef(null);
 
-  // Первичная загрузка при смене чата.
+  // Первичная загрузка при смене чата или пользователя.
   useEffect(() => {
     if (!chatId) return;
     let cancelled = false;
     setLoading(true);
     setError('');
-    getChatMessages(chatId, { limit: PAGE })
+    getChatMessages(chatId, { connectionId, limit: PAGE })
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data) ? data : [];
@@ -35,14 +35,14 @@ export default function ChatView({ chatId, chatTitle, ownerName, partnerName }) 
     return () => {
       cancelled = true;
     };
-  }, [chatId]);
+  }, [chatId, connectionId]);
 
   // Подгрузка более старых сообщений («вверх»).
   const loadOlder = async () => {
     if (messages.length === 0) return;
     const oldestId = messages[0].id;
     try {
-      const older = await getChatMessages(chatId, { limit: PAGE, before: oldestId });
+      const older = await getChatMessages(chatId, { connectionId, limit: PAGE, before: oldestId });
       const list = Array.isArray(older) ? older : [];
       setMessages((prev) => [...list, ...prev]);
       setHasMore(list.length >= PAGE);
@@ -55,7 +55,7 @@ export default function ChatView({ chatId, chatTitle, ownerName, partnerName }) 
     // Перезагружаем текущий чат с нуля.
     setMessages([]);
     setLoading(true);
-    getChatMessages(chatId, { limit: PAGE })
+    getChatMessages(chatId, { connectionId, limit: PAGE })
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
         setMessages(list);

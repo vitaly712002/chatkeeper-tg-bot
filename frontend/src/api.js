@@ -66,15 +66,25 @@ export function getStorage() {
   return apiGet('/storage');
 }
 
-// Список чатов (диалогов).
-export function getChats() {
-  return apiGet('/chats');
+// Список пользователей (подключённых аккаунтов Telegram Business).
+export function getUsers() {
+  return apiGet('/users');
+}
+
+// Список чатов (диалогов). connectionId — опциональная фильтрация по конкретному аккаунту.
+export function getChats(connectionId = null) {
+  let path = '/chats';
+  if (connectionId) {
+    path += `?connection_id=${encodeURIComponent(connectionId)}`;
+  }
+  return apiGet(path);
 }
 
 // Сообщения конкретного чата. before — курсор пагинации (id самого старого
 // загруженного сообщения), чтобы подгружать историю вверх.
-export function getChatMessages(chatId, { limit = 50, before = null } = {}) {
+export function getChatMessages(chatId, { connectionId = null, limit = 50, before = null } = {}) {
   let path = `/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}`;
+  if (connectionId) path += `&connection_id=${encodeURIComponent(connectionId)}`;
   if (before != null) path += `&before=${before}`;
   return apiGet(path);
 }

@@ -27,9 +27,21 @@ func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
-// GET /api/chats — список диалогов.
+// GET /api/users — список подключённых пользователей (аккаунтов Telegram Business).
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.vault.ListUsers(r.Context())
+	if err != nil {
+		s.log.Error("users", "err", err)
+		writeError(w, http.StatusInternalServerError, "Ошибка получения пользователей")
+		return
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+// GET /api/chats?connection_id= — список диалогов (опционально по connection_id).
 func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
-	chats, err := s.vault.ListChats(r.Context())
+	connID := r.URL.Query().Get("connection_id")
+	chats, err := s.vault.ListChats(r.Context(), connID)
 	if err != nil {
 		s.log.Error("chats", "err", err)
 		writeError(w, http.StatusInternalServerError, "Ошибка получения чатов")
@@ -38,20 +50,21 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, chats)
 }
 
-// GET /api/chats/{chatId}/messages?limit=&before= — лента сообщений чата.
+// GET /api/chats/{chatId}/messages?connection_id=&limit=&before= — лента сообщений чата.
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	chatID, err := strconv.ParseInt(r.PathValue("chatId"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Некорректный chatId")
 		return
 	}
+	connID := r.URL.Query().Get("connection_id")
 	limit := parseIntDefault(r.URL.Query().Get("limit"), 50)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	before := parseIntDefault(r.URL.Query().Get("before"), 0)
 
-	msgs, err := s.vault.ListMessages(r.Context(), chatID, int32(limit), int64(before))
+	msgs, err := s.vault.ListMessages(r.Context(), connID, chatID, int32(limit), int64(before))
 	if err != nil {
 		s.log.Error("messages", "err", err)
 		writeError(w, http.StatusInternalServerError, "Ошибка получения сообщений")

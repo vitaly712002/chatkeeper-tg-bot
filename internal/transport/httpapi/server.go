@@ -40,6 +40,7 @@ func New(cfg config.Config, vault *service.Vault, b *bot.Bot, log *slog.Logger) 
 	// Защищённые эндпоинты (оборачиваем в auth-middleware).
 	mux.Handle("GET /api/stats", s.auth(http.HandlerFunc(s.handleStats)))
 	mux.Handle("GET /api/storage", s.auth(http.HandlerFunc(s.handleStorage)))
+	mux.Handle("GET /api/users", s.auth(http.HandlerFunc(s.handleUsers)))
 	mux.Handle("GET /api/chats", s.auth(http.HandlerFunc(s.handleChats)))
 	mux.Handle("GET /api/chats/{chatId}/messages", s.auth(http.HandlerFunc(s.handleMessages)))
 	mux.Handle("GET /api/messages/{id}/edits", s.auth(http.HandlerFunc(s.handleEdits)))
