@@ -140,6 +140,7 @@ type EditResult struct {
 	SenderName string
 	OldText    string
 	NewText    string
+	IsOutgoing bool
 }
 
 // SaveEdit сохраняет предыдущую версию текста и обновляет текущую.
@@ -191,7 +192,12 @@ func (v *Vault) SaveEdit(ctx context.Context, connID string, chatID, msgID int64
 		return EditResult{}, false, err
 	}
 
-	return EditResult{SenderName: row.SenderName, OldText: oldText, NewText: newText}, true, nil
+	return EditResult{
+		SenderName: row.SenderName,
+		OldText:    oldText,
+		NewText:    newText,
+		IsOutgoing: row.IsOutgoing,
+	}, true, nil
 }
 
 // CountMessages — сколько сообщений сохранено для подключения (для /stats).

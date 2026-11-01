@@ -36,6 +36,12 @@ func (r *Runner) handleEditedBusinessMessage(ctx context.Context, m *models.Mess
 		return // текст не менялся (например, правка только медиа)
 	}
 
+	// Не отправляем уведомление, если владелец редактирует своё собственное сообщение.
+	isOutgoing := (m.From != nil && m.From.ID == conn.UserID) || res.IsOutgoing
+	if isOutgoing {
+		return
+	}
+
 	text := "✏️ <b>Сообщение изменено</b>\n" +
 		"От: " + esc(res.SenderName) + "\n\n" +
 		"<b>Было:</b>\n" + esc(res.OldText) + "\n\n" +

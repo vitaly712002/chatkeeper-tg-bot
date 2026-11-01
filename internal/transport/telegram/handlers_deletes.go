@@ -35,18 +35,23 @@ func (r *Runner) handleDeletedBusinessMessages(ctx context.Context, d *models.Bu
 			r.log.Error("не удалось достать удалённое сообщение", "msg_id", msgID, "err", err)
 			continue
 		}
+
+		// Не отправляем уведомление, если владелец удалил своё собственное сообщение.
+		if saved.IsOutgoing {
+			continue
+		}
+
 		r.reportDeleted(ctx, conn.UserChatID, saved)
 	}
 }
 
 // reportDeleted формирует и отправляет владельцу отчёт об удалённом сообщении.
 func (r *Runner) reportDeleted(ctx context.Context, ownerChatID int64, saved service.SavedMessage) {
-	direction := "входящее"
 	if saved.IsOutgoing {
-		direction = "исходящее"
+		return
 	}
 
-	text := "🗑 <b>Удалено сообщение</b> (" + direction + ")\n" +
+	text := "🗑 <b>Удалено сообщение</b>\n" +
 		"От: " + esc(saved.SenderName) + "\n" +
 		"Отправлено: " + fmtTime(saved.SentAt) + "\n"
 	if saved.Text != "" {
