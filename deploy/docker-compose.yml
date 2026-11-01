@@ -1,10 +1,12 @@
+name: chatkeeper
+
 # Прод-стек chatkeeper. Самодостаточен: свой бот + своя база.
 # Caddy НЕ входит сюда — им занимается отдельный проект edge.
 #
 # Требуется общая сеть edge (один раз на сервер): docker network create web
 #
 # Запуск:
-#   docker compose -p chatkeeper --env-file .env up -d --build
+#   docker compose up -d --build
 
 services:
   db:
