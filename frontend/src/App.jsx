@@ -89,6 +89,9 @@ export default function App() {
         user={user}
         onLogout={handleLogout}
         storage={stats?.storage}
+        onStorageUpdate={(newStorage) =>
+          setStats((prev) => (prev ? { ...prev, storage: newStorage } : null))
+        }
       />
 
       {activeTab === 'chats' && (

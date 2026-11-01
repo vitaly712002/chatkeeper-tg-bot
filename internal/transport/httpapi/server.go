@@ -24,13 +24,14 @@ type Server struct {
 	cfg   config.Config
 	vault *service.Vault
 	bot   *bot.Bot
+	media *service.MediaStore
 	log   *slog.Logger
 	http  *http.Server
 }
 
 // New собирает маршруты и возвращает готовый сервер.
-func New(cfg config.Config, vault *service.Vault, b *bot.Bot, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, vault: vault, bot: b, log: log}
+func New(cfg config.Config, vault *service.Vault, b *bot.Bot, media *service.MediaStore, log *slog.Logger) *Server {
+	s := &Server{cfg: cfg, vault: vault, bot: b, media: media, log: log}
 
 	mux := http.NewServeMux()
 
@@ -46,6 +47,7 @@ func New(cfg config.Config, vault *service.Vault, b *bot.Bot, log *slog.Logger) 
 	mux.Handle("GET /api/messages/{id}/edits", s.auth(http.HandlerFunc(s.handleEdits)))
 	// Медиа: токен может прийти в query (?t=...), т.к. <img> не шлёт заголовки.
 	mux.Handle("GET /api/media/{fileId}", s.auth(http.HandlerFunc(s.handleMedia)))
+	mux.Handle("POST /api/media/clean", s.auth(http.HandlerFunc(s.handleCleanMedia)))
 
 	// Отдача веб-панели (SPA), если задана папка со сборкой. Паттерн "/" ловит
 	// всё, что не совпало с более конкретными /api/* маршрутами выше.

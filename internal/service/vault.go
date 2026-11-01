@@ -209,6 +209,11 @@ func (v *Vault) GetLocalPathByFileID(ctx context.Context, fileID string) (string
 	return v.store.GetLocalPathByFileID(ctx, fileID)
 }
 
+// ClearAllLocalMedia сбрасывает все ссылки на сохранённые локальные файлы в БД.
+func (v *Vault) ClearAllLocalMedia(ctx context.Context) error {
+	return v.store.ClearAllMessageLocalPaths(ctx)
+}
+
 // --- вспомогательные функции ---
 
 func (v *Vault) decrypt(row gen.TrackedMessage) (SavedMessage, error) {

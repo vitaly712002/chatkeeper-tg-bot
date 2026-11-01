@@ -17,6 +17,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	storageInfo := service.GetStorageInfo(s.cfg.MediaDir)
+	if s.media != nil {
+		storageInfo.MediaFiles, storageInfo.MediaBytes = s.media.Stats()
+	}
 	stats.Storage = &storageInfo
 	writeJSON(w, http.StatusOK, stats)
 }
@@ -24,7 +27,47 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 // GET /api/storage — информация о свободном месте на диске для медиа и базы данных.
 func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
 	info := service.GetStorageInfo(s.cfg.MediaDir)
+	if s.media != nil {
+		info.MediaFiles, info.MediaBytes = s.media.Stats()
+	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// POST /api/media/clean — удаляет все сохранённые файлы из media-директории и сбрасывает local_path в БД.
+func (s *Server) handleCleanMedia(w http.ResponseWriter, r *http.Request) {
+	var count int
+	var freed int64
+	var err error
+
+	if s.media != nil {
+		count, freed, err = s.media.CleanAll()
+		if err != nil {
+			s.log.Error("clean media files", "err", err)
+			writeError(w, http.StatusInternalServerError, "Ошибка удаления файлов с диска")
+			return
+		}
+	}
+
+	if s.vault != nil {
+		if err := s.vault.ClearAllLocalMedia(r.Context()); err != nil {
+			s.log.Error("clear local media db paths", "err", err)
+			writeError(w, http.StatusInternalServerError, "Ошибка обновления базы данных")
+			return
+		}
+	}
+
+	storageInfo := service.GetStorageInfo(s.cfg.MediaDir)
+	if s.media != nil {
+		storageInfo.MediaFiles, storageInfo.MediaBytes = s.media.Stats()
+	}
+
+	s.log.Info("медиафайлы очищены", "deleted_count", count, "freed_bytes", freed)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted_count": count,
+		"freed_bytes":   freed,
+		"storage":       storageInfo,
+	})
 }
 
 // GET /api/users — список подключённых пользователей (аккаунтов Telegram Business).

@@ -37,3 +37,62 @@ func (m *MediaStore) Save(data []byte, ext string) (string, error) {
 	}
 	return path, nil
 }
+
+// CleanAll удаляет все сохранённые медиафайлы из папки и возвращает
+// количество удалённых файлов и суммарный освобождённый размер в байтах.
+func (m *MediaStore) CleanAll() (int, int64, error) {
+	if m == nil || m.dir == "" {
+		return 0, 0, nil
+	}
+	entries, err := os.ReadDir(m.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("чтение папки медиа %q: %w", m.dir, err)
+	}
+
+	var deletedCount int
+	var freedBytes int64
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(m.dir, entry.Name())
+		if info, err := entry.Info(); err == nil {
+			freedBytes += info.Size()
+		}
+		if err := os.Remove(path); err == nil {
+			deletedCount++
+		}
+	}
+
+	return deletedCount, freedBytes, nil
+}
+
+// Stats возвращает количество сохранённых медиафайлов и их суммарный объём в байтах.
+func (m *MediaStore) Stats() (int, int64) {
+	if m == nil || m.dir == "" {
+		return 0, 0
+	}
+	entries, err := os.ReadDir(m.dir)
+	if err != nil {
+		return 0, 0
+	}
+
+	var count int
+	var totalBytes int64
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if info, err := entry.Info(); err == nil {
+			count++
+			totalBytes += info.Size()
+		}
+	}
+
+	return count, totalBytes
+}

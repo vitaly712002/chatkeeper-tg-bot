@@ -66,6 +66,24 @@ export function getStorage() {
   return apiGet('/storage');
 }
 
+// Очистка всех сохранённых медиафайлов с диска сервера.
+export async function cleanMedia() {
+  const res = await fetch(`${API_BASE}/media/clean`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+  if (res.status === 401) {
+    logout();
+    window.location.reload();
+    throw new Error('Требуется авторизация');
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Ошибка очистки медиа (${res.status})`);
+  }
+  return data;
+}
+
 // Список пользователей (подключённых аккаунтов Telegram Business).
 export function getUsers() {
   return apiGet('/users');

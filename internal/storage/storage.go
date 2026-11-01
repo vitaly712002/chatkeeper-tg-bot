@@ -123,6 +123,14 @@ func (s *Store) UpdateMessageLocalPath(ctx context.Context, fileID, localPath st
 	return err
 }
 
+// ClearAllMessageLocalPaths сбрасывает все ссылки на сохранённые локальные файлы.
+func (s *Store) ClearAllMessageLocalPaths(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx,
+		"UPDATE tracked_messages SET local_path = NULL WHERE local_path IS NOT NULL AND local_path != ''",
+	)
+	return err
+}
+
 // GetLocalPathByFileID ищет сохранённый локальный путь по file_id.
 func (s *Store) GetLocalPathByFileID(ctx context.Context, fileID string) (string, error) {
 	var path string

@@ -12,6 +12,8 @@ type StorageInfo struct {
 	UsedBytes   uint64  `json:"used_bytes"`
 	UsedPercent float64 `json:"used_percent"`
 	Path        string  `json:"path"`
+	MediaBytes  int64   `json:"media_bytes"`
+	MediaFiles  int     `json:"media_files"`
 }
 
 // GetStorageInfo определяет дисковое пространство для директории сохранения файлов.

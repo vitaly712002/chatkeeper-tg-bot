@@ -78,7 +78,7 @@ func run(log *slog.Logger) error {
 
 	// 7. REST API для веб-панели — в отдельной горутине (использует клиент бота
 	//    для отдачи медиа).
-	api := httpapi.New(cfg, vault, runner.Bot(), log)
+	api := httpapi.New(cfg, vault, runner.Bot(), mediaStore, log)
 	go func() {
 		if err := api.Start(ctx); err != nil {
 			log.Error("REST API остановлен с ошибкой", "err", err)
