@@ -1,5 +1,6 @@
 import React from 'react';
 import { Users, User, ShieldCheck } from 'lucide-react';
+import { parseTelegramName } from '../utils';
 
 // Левая колонка — список подключённых аккаунтов (пользователей).
 // Ожидаемая форма: { connection_id, user_id, user_name, is_enabled, chats_count, messages_count, last_at }
@@ -37,6 +38,7 @@ export default function UserList({
         {users &&
           users.map((u) => {
             const isActive = u.connection_id === selectedConnectionId;
+            const userInfo = parseTelegramName(u.user_name);
             return (
               <button
                 key={u.connection_id}
@@ -48,7 +50,7 @@ export default function UserList({
                 }`}
               >
                 <div className="relative w-9 h-9 shrink-0 rounded-xl bg-slate-800 flex items-center justify-center text-indigo-400 font-semibold text-sm">
-                  {u.user_name ? u.user_name.charAt(0).toUpperCase() : <User className="w-4 h-4" />}
+                  {userInfo.name ? userInfo.name.charAt(0).toUpperCase() : <User className="w-4 h-4" />}
                   {u.is_enabled && (
                     <span
                       className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-slate-900 rounded-full"
@@ -59,8 +61,13 @@ export default function UserList({
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-1">
-                    <span className="font-medium text-sm text-slate-200 truncate">
-                      {u.user_name || `ID ${u.user_id}`}
+                    <span className="font-medium text-sm text-slate-200 truncate flex items-center gap-1.5">
+                      <span>{userInfo.name || `ID ${u.user_id}`}</span>
+                      {userInfo.username && (
+                        <span className="text-xs font-normal text-slate-400">
+                          @{userInfo.username}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">

@@ -17,24 +17,32 @@ func webhookSecret(botToken string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// senderName собирает читаемое имя отправителя из полей User.
+// senderName собирает читаемое имя отправителя из полей User: "Имя Фамилия (@username)",
+// "@username" (если имени нет) или "Неизвестный".
 func senderName(u *models.User) string {
 	if u == nil {
 		return "Неизвестный"
 	}
 	name := strings.TrimSpace(u.FirstName + " " + u.LastName)
-	if name == "" && u.Username != "" {
-		name = "@" + u.Username
+	if name != "" && u.Username != "" {
+		return name + " (@" + u.Username + ")"
 	}
-	if name == "" {
-		return "Неизвестный"
+	if name != "" {
+		return name
 	}
-	return name
+	if u.Username != "" {
+		return "@" + u.Username
+	}
+	return "Неизвестный"
 }
 
-// chatPartnerName собирает читаемое имя собеседника из Chat (личного диалога).
+// chatPartnerName собирает читаемое имя собеседника из Chat (личного диалога):
+// "Имя Фамилия (@username)", "@username", название чата или "Собеседник".
 func chatPartnerName(c models.Chat) string {
 	name := strings.TrimSpace(c.FirstName + " " + c.LastName)
+	if name != "" && c.Username != "" {
+		return name + " (@" + c.Username + ")"
+	}
 	if name != "" {
 		return name
 	}

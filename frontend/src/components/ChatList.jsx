@@ -1,5 +1,6 @@
 import React from 'react';
 import { MessageSquare, User, Trash2 } from 'lucide-react';
+import { parseTelegramName } from '../utils';
 
 // Средняя колонка — список диалогов выбранного пользователя.
 export default function ChatList({
@@ -42,6 +43,8 @@ export default function ChatList({
             const isActive = String(chat.chat_id) === String(selectedChatId);
             const owner = chat.owner_name || selectedUserName || 'Вы';
             const partner = chat.partner_name || chat.title || `Чат ${chat.chat_id}`;
+            const ownerInfo = parseTelegramName(owner);
+            const partnerInfo = parseTelegramName(partner);
 
             return (
               <button
@@ -58,10 +61,24 @@ export default function ChatList({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-slate-200 truncate flex items-center gap-1.5 text-sm">
-                      <span className="text-indigo-300 font-semibold">{owner}</span>
-                      <span className="text-slate-500 text-xs">⟷</span>
-                      <span className="text-emerald-400 font-semibold">{partner}</span>
+                    <span className="font-medium text-slate-200 truncate flex items-center gap-1.5 text-sm min-w-0">
+                      <span className="text-indigo-300 font-semibold truncate shrink-0">
+                        {ownerInfo.name}
+                        {ownerInfo.username && (
+                          <span className="text-[11px] font-normal text-indigo-400/80 ml-1">
+                            @{ownerInfo.username}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-slate-500 text-xs shrink-0">⟷</span>
+                      <span className="text-emerald-400 font-semibold truncate min-w-0">
+                        {partnerInfo.name}
+                        {partnerInfo.username && (
+                          <span className="text-[11px] font-normal text-emerald-400/80 ml-1">
+                            @{partnerInfo.username}
+                          </span>
+                        )}
+                      </span>
                     </span>
                     <span className="text-[11px] text-slate-500 shrink-0">
                       {fmtShort(chat.last_at)}

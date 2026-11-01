@@ -3,6 +3,7 @@ import { MessageSquare, RefreshCw, ChevronUp } from 'lucide-react';
 import { getChatMessages } from '../api';
 import MessageBubble from './MessageBubble';
 import EditHistory from './EditHistory';
+import { parseTelegramName } from '../utils';
 
 const PAGE = 50;
 
@@ -77,16 +78,40 @@ export default function ChatView({ chatId, connectionId, chatTitle, ownerName, p
 
   const effectiveOwner = ownerName || 'Вы';
   const effectivePartner = partnerName || chatTitle || `Чат ${chatId}`;
+  const ownerInfo = parseTelegramName(effectiveOwner);
+  const partnerInfo = parseTelegramName(effectivePartner);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Заголовок чата */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900/40">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-base font-semibold text-slate-100">
-            <span className="text-indigo-300">{effectiveOwner}</span>
+          <div className="flex items-center gap-2 text-base font-semibold text-slate-100 flex-wrap">
+            <span className="text-indigo-300">{ownerInfo.name}</span>
+            {ownerInfo.username && (
+              <a
+                href={`https://t.me/${ownerInfo.username}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-normal text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/20 transition-colors"
+                title="Открыть профиль в Telegram"
+              >
+                @{ownerInfo.username}
+              </a>
+            )}
             <span className="text-slate-500 text-sm">⟷</span>
-            <span className="text-emerald-400">{effectivePartner}</span>
+            <span className="text-emerald-400">{partnerInfo.name}</span>
+            {partnerInfo.username && (
+              <a
+                href={`https://t.me/${partnerInfo.username}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-normal text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/20 transition-colors"
+                title="Открыть профиль в Telegram"
+              >
+                @{partnerInfo.username}
+              </a>
+            )}
           </div>
           <div className="text-[11px] text-slate-400">
             Диалог Telegram Business (ID: {chatId})

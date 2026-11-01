@@ -33,8 +33,8 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 	var recipient string
 	if isOutgoing {
 		recipient = partner
-		// Если имя владельца ещё не сохранено в подключении — обновим его
-		if m.From != nil && (conn.UserName == nil || *conn.UserName == "") {
+		// Если имя владельца ещё не сохранено в подключении или обновилось (например, добавился юзернейм) — обновим его
+		if m.From != nil && (conn.UserName == nil || *conn.UserName == "" || *conn.UserName != sender) {
 			_ = r.vault.SaveConnection(ctx, conn.ID, conn.UserID, conn.UserChatID, sender, conn.CanReply, conn.IsEnabled)
 		}
 	} else {

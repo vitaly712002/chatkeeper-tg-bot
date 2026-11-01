@@ -10,6 +10,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { getMediaUrl } from '../api';
+import { parseTelegramName } from '../utils';
 
 // Один «пузырь» сообщения. Ожидаемая форма:
 // { id, sender_name, recipient_name, is_outgoing, text, media_type, file_id, sent_at,
@@ -25,24 +26,37 @@ export default function MessageBubble({ msg, onShowEdits, fallbackOwner, fallbac
       ? 'bg-indigo-600/20 border border-indigo-500/30'
       : 'bg-slate-800/70 border border-slate-700/60';
 
-  const fromName = outgoing
+  const rawFrom = outgoing
     ? (msg.sender_name || fallbackOwner || 'Вы')
     : (msg.sender_name || fallbackPartner || 'Собеседник');
 
-  const toName = outgoing
+  const rawTo = outgoing
     ? (msg.recipient_name || fallbackPartner || 'Собеседник')
     : (msg.recipient_name || fallbackOwner || 'Вы');
+
+  const fromInfo = parseTelegramName(rawFrom);
+  const toInfo = parseTelegramName(rawTo);
 
   return (
     <div className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 ${bubbleClass}`}>
         <div className="text-[11px] font-medium mb-1 flex items-center gap-1.5 flex-wrap">
           <span className={outgoing ? 'text-indigo-300 font-semibold' : 'text-emerald-400 font-semibold'}>
-            {fromName}
+            {fromInfo.name}
+            {fromInfo.username && (
+              <span className="text-[10px] font-normal opacity-80 ml-1">
+                @{fromInfo.username}
+              </span>
+            )}
           </span>
           <span className="text-slate-400 text-[10px]">➔</span>
           <span className={outgoing ? 'text-emerald-300/90 font-medium' : 'text-indigo-300 font-medium'}>
-            {toName}
+            {toInfo.name}
+            {toInfo.username && (
+              <span className="text-[10px] font-normal opacity-80 ml-1">
+                @{toInfo.username}
+              </span>
+            )}
           </span>
         </div>
 
