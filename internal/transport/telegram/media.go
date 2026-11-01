@@ -11,18 +11,40 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
+// isDisappearingMedia проверяет, является ли сообщение исчезающим (view-once) медиа.
+// В Telegram исчезающие фото и видео в личных чатах имеют HasProtectedContent = true
+// (так как Telegram запрещает их пересылку и сохранение).
+// Обычные сообщения, кружки (video_note), обычные фото/видео, стикеры имеют HasProtectedContent = false.
+func isDisappearingMedia(m *models.Message) bool {
+	if m == nil || !m.HasProtectedContent {
+		return false
+	}
+	// Исчезающими медиа могут быть только фото или видео (и одноразовые голосовые).
+	// Кружки (video_note), анимации/гифки, стикеры, документы исчезающими быть не могут.
+	return len(m.Photo) > 0 || m.Video != nil || m.Voice != nil
+}
+
 // tryRescueMedia пытается "спасти" исчезающее медиа из сообщения, на которое
-// ответил владелец. Логика:
-//  1. Находим медиа в reply-сообщении.
+// ответил владелец. Срабатывает ТОЛЬКО для исчезающих медиа (view-once).
+// Обычные фото, видео, кружочки (video_note), стикеры и документы игнорируются.
+// Логика:
+//  1. Проверяем, что сообщение действительно исчезающее.
 //  2. Через GetFile получаем путь к файлу на серверах Telegram.
 //  3. Скачиваем байты, пока файл ещё доступен.
 //  4. Сохраняем копию на диск и отправляем владельцу в личный чат.
-//
-// Если медиа обычное (не исчезающее), ничего страшного — просто получим копию.
 func (r *Runner) tryRescueMedia(ctx context.Context, ownerChatID int64, replied *models.Message) {
+	if !isDisappearingMedia(replied) {
+		return // не исчезающее медиа — игнорируем
+	}
+
 	media, ok := extractMedia(replied)
 	if !ok {
 		return // в reply нет медиа — спасать нечего
+	}
+
+	// Разрешаем только исчезающие фото, видео и голосовые (кружки, стикеры и т.д. отсекаются)
+	if media.kind != "photo" && media.kind != "video" && media.kind != "voice" {
+		return
 	}
 
 	// Шаг 1: узнаём путь к файлу на серверах Telegram.
@@ -87,7 +109,7 @@ func (r *Runner) sendRescuedMedia(ctx context.Context, chatID int64, media media
 	switch media.kind {
 	case "photo":
 		_, err = r.bot.SendPhoto(ctx, &bot.SendPhotoParams{ChatID: chatID, Photo: input, Caption: caption})
-	case "video", "video_note", "animation":
+	case "video":
 		_, err = r.bot.SendVideo(ctx, &bot.SendVideoParams{ChatID: chatID, Video: input, Caption: caption})
 	case "voice":
 		_, err = r.bot.SendVoice(ctx, &bot.SendVoiceParams{ChatID: chatID, Voice: input, Caption: caption})
