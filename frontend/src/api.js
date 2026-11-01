@@ -61,6 +61,11 @@ export function getStats() {
   return apiGet('/stats');
 }
 
+// Информация о дисковой памяти (свободно / всего).
+export function getStorage() {
+  return apiGet('/storage');
+}
+
 // Список чатов (диалогов).
 export function getChats() {
   return apiGet('/chats');

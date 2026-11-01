@@ -80,7 +80,7 @@ func (q *Queries) GetEditsByMessage(ctx context.Context, messageRefID int64) ([]
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, connection_id, chat_id, message_id, sender_id, sender_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at FROM tracked_messages
+SELECT id, connection_id, chat_id, message_id, sender_id, sender_name, recipient_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at FROM tracked_messages
 WHERE connection_id = $1 AND chat_id = $2 AND message_id = $3
 `
 
@@ -100,6 +100,7 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (Tracked
 		&i.MessageID,
 		&i.SenderID,
 		&i.SenderName,
+		&i.RecipientName,
 		&i.IsOutgoing,
 		&i.EncryptedText,
 		&i.MediaType,
@@ -113,7 +114,7 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (Tracked
 }
 
 const getMessageByID = `-- name: GetMessageByID :one
-SELECT id, connection_id, chat_id, message_id, sender_id, sender_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at FROM tracked_messages WHERE id = $1
+SELECT id, connection_id, chat_id, message_id, sender_id, sender_name, recipient_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at FROM tracked_messages WHERE id = $1
 `
 
 func (q *Queries) GetMessageByID(ctx context.Context, id int64) (TrackedMessage, error) {
@@ -126,6 +127,7 @@ func (q *Queries) GetMessageByID(ctx context.Context, id int64) (TrackedMessage,
 		&i.MessageID,
 		&i.SenderID,
 		&i.SenderName,
+		&i.RecipientName,
 		&i.IsOutgoing,
 		&i.EncryptedText,
 		&i.MediaType,
@@ -177,14 +179,15 @@ func (q *Queries) InsertEdit(ctx context.Context, arg InsertEditParams) error {
 
 const insertMessage = `-- name: InsertMessage :one
 INSERT INTO tracked_messages (
-    connection_id, chat_id, message_id, sender_id, sender_name,
+    connection_id, chat_id, message_id, sender_id, sender_name, recipient_name,
     is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (connection_id, chat_id, message_id) DO UPDATE SET
     encrypted_text = EXCLUDED.encrypted_text,
     media_type = EXCLUDED.media_type,
-    file_id = EXCLUDED.file_id
-RETURNING id, connection_id, chat_id, message_id, sender_id, sender_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at
+    file_id = EXCLUDED.file_id,
+    recipient_name = COALESCE(EXCLUDED.recipient_name, tracked_messages.recipient_name)
+RETURNING id, connection_id, chat_id, message_id, sender_id, sender_name, recipient_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at
 `
 
 type InsertMessageParams struct {
@@ -193,6 +196,7 @@ type InsertMessageParams struct {
 	MessageID     int64
 	SenderID      int64
 	SenderName    string
+	RecipientName *string
 	IsOutgoing    bool
 	EncryptedText []byte
 	MediaType     *string
@@ -210,6 +214,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (T
 		arg.MessageID,
 		arg.SenderID,
 		arg.SenderName,
+		arg.RecipientName,
 		arg.IsOutgoing,
 		arg.EncryptedText,
 		arg.MediaType,
@@ -225,6 +230,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (T
 		&i.MessageID,
 		&i.SenderID,
 		&i.SenderName,
+		&i.RecipientName,
 		&i.IsOutgoing,
 		&i.EncryptedText,
 		&i.MediaType,
@@ -238,15 +244,21 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (T
 }
 
 const listChats = `-- name: ListChats :many
-
 SELECT
     t.chat_id AS chat_id,
     COUNT(*) AS msg_count,
     COUNT(*) FILTER (WHERE t.deleted_at IS NOT NULL) AS deleted_count,
     MAX(t.sent_at) AS last_at,
-    COALESCE((SELECT t2.sender_name FROM tracked_messages t2
-        WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE
-        ORDER BY t2.sent_at DESC LIMIT 1), '') AS partner_name,
+    COALESCE(
+        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        'Собеседник'
+    ) AS partner_name,
+    COALESCE(
+        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        'Вы'
+    ) AS owner_name,
     (SELECT t3.encrypted_text FROM tracked_messages t3
         WHERE t3.chat_id = t.chat_id ORDER BY t3.sent_at DESC LIMIT 1) AS last_encrypted_text,
     (SELECT t4.media_type FROM tracked_messages t4
@@ -262,13 +274,14 @@ type ListChatsRow struct {
 	DeletedCount      int64
 	LastAt            interface{}
 	PartnerName       interface{}
+	OwnerName         interface{}
 	LastEncryptedText []byte
 	LastMediaType     *string
 }
 
 // === Запросы для веб-API ===
 // Список диалогов: для каждого chat_id — счётчики, время и превью последнего
-// сообщения, а также имя собеседника (последний не-исходящий отправитель).
+// сообщения, а также имена обоих участников (владельца и собеседника).
 func (q *Queries) ListChats(ctx context.Context) ([]ListChatsRow, error) {
 	rows, err := q.db.Query(ctx, listChats)
 	if err != nil {
@@ -284,6 +297,7 @@ func (q *Queries) ListChats(ctx context.Context) ([]ListChatsRow, error) {
 			&i.DeletedCount,
 			&i.LastAt,
 			&i.PartnerName,
+			&i.OwnerName,
 			&i.LastEncryptedText,
 			&i.LastMediaType,
 		); err != nil {
@@ -299,7 +313,7 @@ func (q *Queries) ListChats(ctx context.Context) ([]ListChatsRow, error) {
 
 const listMessagesBefore = `-- name: ListMessagesBefore :many
 SELECT
-    tm.id, tm.message_id, tm.sender_name, tm.is_outgoing, tm.encrypted_text,
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
     tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
@@ -318,6 +332,7 @@ type ListMessagesBeforeRow struct {
 	ID            int64
 	MessageID     int64
 	SenderName    string
+	RecipientName string
 	IsOutgoing    bool
 	EncryptedText []byte
 	MediaType     *string
@@ -341,6 +356,7 @@ func (q *Queries) ListMessagesBefore(ctx context.Context, arg ListMessagesBefore
 			&i.ID,
 			&i.MessageID,
 			&i.SenderName,
+			&i.RecipientName,
 			&i.IsOutgoing,
 			&i.EncryptedText,
 			&i.MediaType,
@@ -361,7 +377,7 @@ func (q *Queries) ListMessagesBefore(ctx context.Context, arg ListMessagesBefore
 
 const listRecentMessages = `-- name: ListRecentMessages :many
 SELECT
-    tm.id, tm.message_id, tm.sender_name, tm.is_outgoing, tm.encrypted_text,
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
     tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
@@ -379,6 +395,7 @@ type ListRecentMessagesRow struct {
 	ID            int64
 	MessageID     int64
 	SenderName    string
+	RecipientName string
 	IsOutgoing    bool
 	EncryptedText []byte
 	MediaType     *string
@@ -402,6 +419,7 @@ func (q *Queries) ListRecentMessages(ctx context.Context, arg ListRecentMessages
 			&i.ID,
 			&i.MessageID,
 			&i.SenderName,
+			&i.RecipientName,
 			&i.IsOutgoing,
 			&i.EncryptedText,
 			&i.MediaType,

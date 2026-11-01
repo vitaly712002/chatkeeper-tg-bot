@@ -2,13 +2,14 @@
 -- Сохраняет новое сообщение. Если вдруг такое уже есть (повтор апдейта),
 -- обновляем изменяемые поля и возвращаем существующую запись.
 INSERT INTO tracked_messages (
-    connection_id, chat_id, message_id, sender_id, sender_name,
+    connection_id, chat_id, message_id, sender_id, sender_name, recipient_name,
     is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (connection_id, chat_id, message_id) DO UPDATE SET
     encrypted_text = EXCLUDED.encrypted_text,
     media_type = EXCLUDED.media_type,
-    file_id = EXCLUDED.file_id
+    file_id = EXCLUDED.file_id,
+    recipient_name = COALESCE(EXCLUDED.recipient_name, tracked_messages.recipient_name)
 RETURNING *;
 
 -- name: GetMessage :one
@@ -39,15 +40,22 @@ SELECT * FROM tracked_messages WHERE id = $1;
 
 -- name: ListChats :many
 -- Список диалогов: для каждого chat_id — счётчики, время и превью последнего
--- сообщения, а также имя собеседника (последний не-исходящий отправитель).
+-- сообщения, а также имена обоих участников (владельца и собеседника).
 SELECT
     t.chat_id AS chat_id,
     COUNT(*) AS msg_count,
     COUNT(*) FILTER (WHERE t.deleted_at IS NOT NULL) AS deleted_count,
     MAX(t.sent_at) AS last_at,
-    COALESCE((SELECT t2.sender_name FROM tracked_messages t2
-        WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE
-        ORDER BY t2.sent_at DESC LIMIT 1), '') AS partner_name,
+    COALESCE(
+        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        'Собеседник'
+    ) AS partner_name,
+    COALESCE(
+        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        'Вы'
+    ) AS owner_name,
     (SELECT t3.encrypted_text FROM tracked_messages t3
         WHERE t3.chat_id = t.chat_id ORDER BY t3.sent_at DESC LIMIT 1) AS last_encrypted_text,
     (SELECT t4.media_type FROM tracked_messages t4
@@ -59,7 +67,7 @@ ORDER BY last_at DESC;
 -- name: ListRecentMessages :many
 -- Последние сообщения чата (новые сверху). Флаг edited — есть ли правки.
 SELECT
-    tm.id, tm.message_id, tm.sender_name, tm.is_outgoing, tm.encrypted_text,
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
     tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
@@ -70,7 +78,7 @@ LIMIT $2;
 -- name: ListMessagesBefore :many
 -- Более ранние сообщения чата (для подгрузки истории вверх).
 SELECT
-    tm.id, tm.message_id, tm.sender_name, tm.is_outgoing, tm.encrypted_text,
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
     tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm

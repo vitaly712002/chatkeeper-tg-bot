@@ -32,6 +32,21 @@ func senderName(u *models.User) string {
 	return name
 }
 
+// chatPartnerName собирает читаемое имя собеседника из Chat (личного диалога).
+func chatPartnerName(c models.Chat) string {
+	name := strings.TrimSpace(c.FirstName + " " + c.LastName)
+	if name != "" {
+		return name
+	}
+	if c.Username != "" {
+		return "@" + c.Username
+	}
+	if c.Title != "" {
+		return c.Title
+	}
+	return "Собеседник"
+}
+
 // mediaInfo — тип медиа и его file_id (берём максимальное качество для фото).
 type mediaInfo struct {
 	kind   string // "photo", "video", "voice", "document", ...

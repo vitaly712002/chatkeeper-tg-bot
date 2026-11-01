@@ -32,37 +32,40 @@ func NewVault(store *storage.Store, cipher *crypto.Cipher) *Vault {
 // IncomingMessage — "сырьё" из Telegram, которое мы хотим сохранить.
 // Транспортный слой заполняет эту структуру и передаёт сюда.
 type IncomingMessage struct {
-	ConnectionID string
-	ChatID       int64
-	MessageID    int64
-	SenderID     int64
-	SenderName   string
-	IsOutgoing   bool
-	Text         string // открытый текст; шифруется внутри сервиса
-	MediaType    string // "" если медиа нет
-	FileID       string // "" если медиа нет
-	SentAt       time.Time
+	ConnectionID  string
+	ChatID        int64
+	MessageID     int64
+	SenderID      int64
+	SenderName    string
+	RecipientName string
+	IsOutgoing    bool
+	Text          string // открытый текст; шифруется внутри сервиса
+	MediaType     string // "" если медиа нет
+	FileID        string // "" если медиа нет
+	SentAt        time.Time
 }
 
 // SavedMessage — расшифрованное сообщение, готовое для показа владельцу.
 type SavedMessage struct {
-	SenderName string
-	IsOutgoing bool
-	Text       string
-	MediaType  string
-	FileID     string
-	SentAt     time.Time
+	SenderName    string
+	RecipientName string
+	IsOutgoing    bool
+	Text          string
+	MediaType     string
+	FileID        string
+	SentAt        time.Time
 }
 
 // ErrNotFound — сообщение не найдено в базе (например, пришло до запуска бота).
 var ErrNotFound = errors.New("сообщение не найдено в хранилище")
 
 // SaveConnection сохраняет/обновляет бизнес-подключение владельца.
-func (v *Vault) SaveConnection(ctx context.Context, id string, userID, userChatID int64, canReply, enabled bool) error {
+func (v *Vault) SaveConnection(ctx context.Context, id string, userID, userChatID int64, userName string, canReply, enabled bool) error {
 	_, err := v.store.UpsertConnection(ctx, gen.UpsertConnectionParams{
 		ID:         id,
 		UserID:     userID,
 		UserChatID: userChatID,
+		UserName:   nullStr(userName),
 		CanReply:   canReply,
 		IsEnabled:  enabled,
 	})
@@ -80,7 +83,7 @@ func (v *Vault) GetConnection(ctx context.Context, id string) (gen.BusinessConne
 }
 
 // GetConnectionByUser возвращает последнее подключение владельца по его user_id
-// (нужно для команд в личке бота: /status, /stats).
+// (нужно для команд в личке бота: /status).
 func (v *Vault) GetConnectionByUser(ctx context.Context, userID int64) (gen.BusinessConnection, error) {
 	conn, err := v.store.GetConnectionByUser(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -106,6 +109,7 @@ func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) error {
 		MessageID:     in.MessageID,
 		SenderID:      in.SenderID,
 		SenderName:    in.SenderName,
+		RecipientName: nullStr(in.RecipientName),
 		IsOutgoing:    in.IsOutgoing,
 		EncryptedText: encText,
 		MediaType:     nullStr(in.MediaType),
@@ -195,6 +199,16 @@ func (v *Vault) CountMessages(ctx context.Context, connID string) (int64, error)
 	return v.store.CountMessagesByConnection(ctx, connID)
 }
 
+// SetMessageLocalPath связывает сохранённый локальный файл с сообщением.
+func (v *Vault) SetMessageLocalPath(ctx context.Context, fileID, path string) error {
+	return v.store.UpdateMessageLocalPath(ctx, fileID, path)
+}
+
+// GetLocalPathByFileID возвращает путь к файлу на диске по file_id.
+func (v *Vault) GetLocalPathByFileID(ctx context.Context, fileID string) (string, error) {
+	return v.store.GetLocalPathByFileID(ctx, fileID)
+}
+
 // --- вспомогательные функции ---
 
 func (v *Vault) decrypt(row gen.TrackedMessage) (SavedMessage, error) {
@@ -207,12 +221,13 @@ func (v *Vault) decrypt(row gen.TrackedMessage) (SavedMessage, error) {
 		}
 	}
 	return SavedMessage{
-		SenderName: row.SenderName,
-		IsOutgoing: row.IsOutgoing,
-		Text:       text,
-		MediaType:  derefStr(row.MediaType),
-		FileID:     derefStr(row.FileID),
-		SentAt:     row.SentAt.Time,
+		SenderName:    row.SenderName,
+		RecipientName: derefStr(row.RecipientName),
+		IsOutgoing:    row.IsOutgoing,
+		Text:          text,
+		MediaType:     derefStr(row.MediaType),
+		FileID:        derefStr(row.FileID),
+		SentAt:        row.SentAt.Time,
 	}, nil
 }
 

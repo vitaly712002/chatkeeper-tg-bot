@@ -3,9 +3,9 @@ import { Trash2, Pencil, FileText, Mic, Film, Image as ImageIcon } from 'lucide-
 import { getMediaUrl } from '../api';
 
 // Один «пузырь» сообщения. Ожидаемая форма:
-// { id, sender_name, is_outgoing, text, media_type, file_id, sent_at,
+// { id, sender_name, recipient_name, is_outgoing, text, media_type, file_id, sent_at,
 //   deleted_at (null если не удалено), edited (bool) }
-export default function MessageBubble({ msg, onShowEdits }) {
+export default function MessageBubble({ msg, onShowEdits, fallbackOwner, fallbackPartner }) {
   const deleted = !!msg.deleted_at;
   const outgoing = !!msg.is_outgoing;
 
@@ -16,12 +16,26 @@ export default function MessageBubble({ msg, onShowEdits }) {
       ? 'bg-indigo-600/20 border border-indigo-500/30'
       : 'bg-slate-800/70 border border-slate-700/60';
 
+  const fromName = outgoing
+    ? (msg.sender_name || fallbackOwner || 'Вы')
+    : (msg.sender_name || fallbackPartner || 'Собеседник');
+
+  const toName = outgoing
+    ? (msg.recipient_name || fallbackPartner || 'Собеседник')
+    : (msg.recipient_name || fallbackOwner || 'Вы');
+
   return (
     <div className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 ${bubbleClass}`}>
-        {!outgoing && (
-          <div className="text-[11px] font-medium text-indigo-300 mb-0.5">{msg.sender_name}</div>
-        )}
+        <div className="text-[11px] font-medium mb-1 flex items-center gap-1.5 flex-wrap">
+          <span className={outgoing ? 'text-indigo-300 font-semibold' : 'text-emerald-400 font-semibold'}>
+            {fromName}
+          </span>
+          <span className="text-slate-400 text-[10px]">➔</span>
+          <span className={outgoing ? 'text-emerald-300/90 font-medium' : 'text-indigo-300 font-medium'}>
+            {toName}
+          </span>
+        </div>
 
         {msg.media_type && msg.file_id && <MediaView type={msg.media_type} fileId={msg.file_id} />}
 

@@ -7,7 +7,7 @@ import EditHistory from './EditHistory';
 const PAGE = 50;
 
 // Правая колонка — лента сообщений выбранного чата.
-export default function ChatView({ chatId, chatTitle }) {
+export default function ChatView({ chatId, chatTitle, ownerName, partnerName }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -75,15 +75,27 @@ export default function ChatView({ chatId, chatTitle }) {
     );
   }
 
+  const effectiveOwner = ownerName || 'Вы';
+  const effectivePartner = partnerName || chatTitle || `Чат ${chatId}`;
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Заголовок чата */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900/40">
-        <div className="font-semibold text-slate-200 truncate">{chatTitle || `Чат ${chatId}`}</div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-base font-semibold text-slate-100">
+            <span className="text-indigo-300">{effectiveOwner}</span>
+            <span className="text-slate-500 text-sm">⟷</span>
+            <span className="text-emerald-400">{effectivePartner}</span>
+          </div>
+          <div className="text-[11px] text-slate-400">
+            Диалог Telegram Business (ID: {chatId})
+          </div>
+        </div>
         <button
           onClick={refresh}
           title="Обновить"
-          className="p-2 text-slate-400 hover:text-indigo-300 hover:bg-slate-800/60 rounded-lg"
+          className="p-2 text-slate-400 hover:text-indigo-300 hover:bg-slate-800/60 rounded-lg shrink-0"
         >
           <RefreshCw className="w-4 h-4" />
         </button>
@@ -111,7 +123,13 @@ export default function ChatView({ chatId, chatTitle }) {
         )}
 
         {messages.map((m) => (
-          <MessageBubble key={m.id} msg={m} onShowEdits={setEditTarget} />
+          <MessageBubble
+            key={m.id}
+            msg={m}
+            onShowEdits={setEditTarget}
+            fallbackOwner={effectiveOwner}
+            fallbackPartner={effectivePartner}
+          />
         ))}
         <div ref={bottomRef} />
       </div>

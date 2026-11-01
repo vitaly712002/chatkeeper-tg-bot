@@ -16,6 +16,7 @@ RUN go mod download
 COPY . .
 # CGO_ENABLED=0 -> статический бинарник для distroless.
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bot ./cmd/bot
+RUN mkdir -p /data/media && chown -R 65532:65532 /data
 
 # --- Этап 3: финальный образ ---
 # distroless: без shell и лишних пакетов; :nonroot -> запуск не от root.
@@ -24,6 +25,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /bot /bot
 # Собранная веб-панель; путь совпадает с WEB_DIR по умолчанию ниже.
 COPY --from=web /web/dist /web
+COPY --from=builder --chown=65532:65532 /data /data
 
 # Папка для сохранённых медиа (должна совпадать с MEDIA_DIR).
 VOLUME ["/data"]

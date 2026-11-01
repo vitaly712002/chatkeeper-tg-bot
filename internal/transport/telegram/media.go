@@ -46,6 +46,10 @@ func (r *Runner) tryRescueMedia(ctx context.Context, ownerChatID int64, replied 
 		// продолжаем — всё равно попробуем отправить владельцу
 	} else {
 		r.log.Info("исчезающее медиа спасено", "path", path, "kind", media.kind)
+		// Привязываем сохранённый файл к сообщению в БД, чтобы веб-панель могла его отобразить и скачать
+		if err := r.vault.SetMessageLocalPath(ctx, media.fileID, path); err != nil {
+			r.log.Error("не удалось привязать local_path к сообщению", "err", err)
+		}
 	}
 
 	// Шаг 4: отправляем копию владельцу. Загружаем именно байты (а не file_id),

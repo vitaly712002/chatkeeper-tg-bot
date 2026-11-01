@@ -17,6 +17,8 @@ import (
 type ChatSummary struct {
 	ChatID       int64     `json:"chat_id"`
 	Title        string    `json:"title"`
+	OwnerName    string    `json:"owner_name"`
+	PartnerName  string    `json:"partner_name"`
 	LastText     string    `json:"last_text"`
 	LastAt       time.Time `json:"last_at"`
 	Count        int64     `json:"count"`
@@ -25,16 +27,17 @@ type ChatSummary struct {
 
 // MessageView — сообщение для ленты (текст уже расшифрован).
 type MessageView struct {
-	ID         int64      `json:"id"`
-	MessageID  int64      `json:"message_id"`
-	SenderName string     `json:"sender_name"`
-	IsOutgoing bool       `json:"is_outgoing"`
-	Text       string     `json:"text"`
-	MediaType  string     `json:"media_type"`
-	FileID     string     `json:"file_id"`
-	SentAt     time.Time  `json:"sent_at"`
-	DeletedAt  *time.Time `json:"deleted_at"`
-	Edited     bool       `json:"edited"`
+	ID            int64      `json:"id"`
+	MessageID     int64      `json:"message_id"`
+	SenderName    string     `json:"sender_name"`
+	RecipientName string     `json:"recipient_name"`
+	IsOutgoing    bool       `json:"is_outgoing"`
+	Text          string     `json:"text"`
+	MediaType     string     `json:"media_type"`
+	FileID        string     `json:"file_id"`
+	SentAt        time.Time  `json:"sent_at"`
+	DeletedAt     *time.Time `json:"deleted_at"`
+	Edited        bool       `json:"edited"`
 }
 
 // EditVersion — одна версия текста в истории правок.
@@ -45,10 +48,11 @@ type EditVersion struct {
 
 // Stats — сводка для дашборда.
 type Stats struct {
-	TotalMessages int64 `json:"total_messages"`
-	TotalChats    int64 `json:"total_chats"`
-	DeletedCount  int64 `json:"deleted_count"`
-	EditedCount   int64 `json:"edited_count"`
+	TotalMessages int64        `json:"total_messages"`
+	TotalChats    int64        `json:"total_chats"`
+	DeletedCount  int64        `json:"deleted_count"`
+	EditedCount   int64        `json:"edited_count"`
+	Storage       *StorageInfo `json:"storage,omitempty"`
 }
 
 // ListChats возвращает список диалогов с превью последнего сообщения.
@@ -67,9 +71,21 @@ func (v *Vault) ListChats(ctx context.Context) ([]ChatSummary, error) {
 		} else if r.LastMediaType != nil {
 			preview = mediaLabel(*r.LastMediaType)
 		}
+
+		partner := asString(r.PartnerName)
+		owner := asString(r.OwnerName)
+		if partner == "" {
+			partner = "Собеседник"
+		}
+		if owner == "" {
+			owner = "Вы"
+		}
+
 		out = append(out, ChatSummary{
 			ChatID:       r.ChatID,
-			Title:        asString(r.PartnerName),
+			Title:        partner,
+			OwnerName:    owner,
+			PartnerName:  partner,
 			LastText:     preview,
 			LastAt:       asTime(r.LastAt),
 			Count:        r.MsgCount,
@@ -189,15 +205,16 @@ func (v *Vault) toMessageView(r gen.ListRecentMessagesRow) MessageView {
 		}
 	}
 	mv := MessageView{
-		ID:         r.ID,
-		MessageID:  r.MessageID,
-		SenderName: r.SenderName,
-		IsOutgoing: r.IsOutgoing,
-		Text:       text,
-		MediaType:  derefStr(r.MediaType),
-		FileID:     derefStr(r.FileID),
-		SentAt:     r.SentAt.Time,
-		Edited:     r.Edited,
+		ID:            r.ID,
+		MessageID:     r.MessageID,
+		SenderName:    r.SenderName,
+		RecipientName: r.RecipientName,
+		IsOutgoing:    r.IsOutgoing,
+		Text:          text,
+		MediaType:     derefStr(r.MediaType),
+		FileID:        derefStr(r.FileID),
+		SentAt:        r.SentAt.Time,
+		Edited:        r.Edited,
 	}
 	if r.DeletedAt.Valid {
 		t := r.DeletedAt.Time
@@ -212,6 +229,7 @@ func messageRow(r gen.ListMessagesBeforeRow) gen.ListRecentMessagesRow {
 		ID:            r.ID,
 		MessageID:     r.MessageID,
 		SenderName:    r.SenderName,
+		RecipientName: r.RecipientName,
 		IsOutgoing:    r.IsOutgoing,
 		EncryptedText: r.EncryptedText,
 		MediaType:     r.MediaType,

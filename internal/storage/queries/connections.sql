@@ -1,11 +1,12 @@
 -- name: UpsertConnection :one
 -- Создаёт или обновляет бизнес-подключение.
 -- ON CONFLICT: если подключение с таким id уже есть — обновляем его поля.
-INSERT INTO business_connections (id, user_id, user_chat_id, can_reply, is_enabled, updated_at)
-VALUES ($1, $2, $3, $4, $5, NOW())
+INSERT INTO business_connections (id, user_id, user_chat_id, user_name, can_reply, is_enabled, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, NOW())
 ON CONFLICT (id) DO UPDATE SET
     user_id = EXCLUDED.user_id,
     user_chat_id = EXCLUDED.user_chat_id,
+    user_name = COALESCE(EXCLUDED.user_name, business_connections.user_name),
     can_reply = EXCLUDED.can_reply,
     is_enabled = EXCLUDED.is_enabled,
     updated_at = NOW()

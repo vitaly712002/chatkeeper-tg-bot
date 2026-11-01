@@ -15,8 +15,9 @@ import (
 // удалениях и правках.
 func (r *Runner) handleBusinessConnection(ctx context.Context, bc *models.BusinessConnection) {
 	canReply := bc.Rights != nil && bc.Rights.CanReply
+	ownerName := senderName(&bc.User)
 
-	err := r.vault.SaveConnection(ctx, bc.ID, bc.User.ID, bc.UserChatID, canReply, bc.IsEnabled)
+	err := r.vault.SaveConnection(ctx, bc.ID, bc.User.ID, bc.UserChatID, ownerName, canReply, bc.IsEnabled)
 	if err != nil {
 		r.log.Error("не удалось сохранить business_connection", "id", bc.ID, "err", err)
 		return
@@ -29,7 +30,7 @@ func (r *Runner) handleBusinessConnection(ctx context.Context, bc *models.Busine
 	if bc.IsEnabled {
 		r.send(ctx, bc.UserChatID,
 			"✅ <b>Бот подключён к вашему аккаунту.</b>\n\n"+
-				"Теперь я сохраняю сообщения из ваших личных переписок и буду "+
+				"Теперь я пересылаю вам сообщения из ваших личных переписок и буду "+
 				"сообщать об удалениях и правках. Команда /status — проверить состояние.")
 	} else {
 		r.send(ctx, bc.UserChatID, "⛔️ Бот отключён от аккаунта. Логирование приостановлено.")

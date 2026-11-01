@@ -16,7 +16,15 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Ошибка получения статистики")
 		return
 	}
+	storageInfo := service.GetStorageInfo(s.cfg.MediaDir)
+	stats.Storage = &storageInfo
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// GET /api/storage — информация о свободном месте на диске для медиа и базы данных.
+func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
+	info := service.GetStorageInfo(s.cfg.MediaDir)
+	writeJSON(w, http.StatusOK, info)
 }
 
 // GET /api/chats — список диалогов.

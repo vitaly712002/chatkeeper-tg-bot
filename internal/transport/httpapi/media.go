@@ -3,13 +3,14 @@ package httpapi
 import (
 	"io"
 	"net/http"
+	"os"
 
 	"github.com/go-telegram/bot"
 )
 
 // GET /api/media/{fileId} — отдаёт медиафайл по его file_id.
-// Логика: узнаём путь через GetFile, скачиваем с серверов Telegram и стримим
-// клиенту. Для исчезающих медиа file_id может быть уже недоступен — тогда 404.
+// Если файл сохранён на локальном диске (например, спасённое исчезающее фото) — отдаём его;
+// иначе скачиваем с серверов Telegram через GetFile.
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	fileID := r.PathValue("fileId")
 	if fileID == "" {
@@ -17,6 +18,16 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1. Проверяем, есть ли сохранённая копия на локальном диске (спасённые исчезающие медиа)
+	if localPath, err := s.vault.GetLocalPathByFileID(r.Context(), fileID); err == nil && localPath != "" {
+		if _, err := os.Stat(localPath); err == nil {
+			w.Header().Set("Cache-Control", "private, max-age=3600")
+			http.ServeFile(w, r, localPath)
+			return
+		}
+	}
+
+	// 2. Если на диске нет — запрашиваем у серверов Telegram
 	file, err := s.bot.GetFile(r.Context(), &bot.GetFileParams{FileID: fileID})
 	if err != nil {
 		s.log.Error("media GetFile", "err", err)

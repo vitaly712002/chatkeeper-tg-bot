@@ -2,7 +2,7 @@ import React from 'react';
 import { User, Trash2 } from 'lucide-react';
 
 // Левая колонка — список диалогов. Ожидаемая форма чата:
-// { chat_id, title, last_text, last_at, count, deleted_count }
+// { chat_id, title, owner_name, partner_name, last_text, last_at, count, deleted_count }
 export default function ChatList({ chats, selectedChatId, onSelect, loading }) {
   if (loading) {
     return <div className="p-6 text-sm text-slate-500">Загрузка чатов…</div>;
@@ -15,6 +15,9 @@ export default function ChatList({ chats, selectedChatId, onSelect, loading }) {
     <div className="divide-y divide-slate-800/60">
       {chats.map((chat) => {
         const isActive = String(chat.chat_id) === String(selectedChatId);
+        const owner = chat.owner_name || 'Вы';
+        const partner = chat.partner_name || chat.title || `Чат ${chat.chat_id}`;
+
         return (
           <button
             key={chat.chat_id}
@@ -28,13 +31,15 @@ export default function ChatList({ chats, selectedChatId, onSelect, loading }) {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-slate-200 truncate">
-                  {chat.title || `Чат ${chat.chat_id}`}
+                <span className="font-medium text-slate-200 truncate flex items-center gap-1.5 text-sm">
+                  <span className="text-indigo-300 font-semibold">{owner}</span>
+                  <span className="text-slate-500 text-xs">⟷</span>
+                  <span className="text-emerald-400 font-semibold">{partner}</span>
                 </span>
                 <span className="text-[11px] text-slate-500 shrink-0">{fmtShort(chat.last_at)}</span>
               </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-slate-500 truncate">
+              <div className="flex items-center justify-between gap-2 mt-0.5">
+                <span className="text-xs text-slate-400 truncate">
                   {chat.last_text || '—'}
                 </span>
                 {chat.deleted_count > 0 && (

@@ -10,7 +10,7 @@ import (
 )
 
 const getConnection = `-- name: GetConnection :one
-SELECT id, user_id, user_chat_id, can_reply, is_enabled, created_at, updated_at FROM business_connections WHERE id = $1
+SELECT id, user_id, user_chat_id, user_name, can_reply, is_enabled, created_at, updated_at FROM business_connections WHERE id = $1
 `
 
 func (q *Queries) GetConnection(ctx context.Context, id string) (BusinessConnection, error) {
@@ -20,6 +20,7 @@ func (q *Queries) GetConnection(ctx context.Context, id string) (BusinessConnect
 		&i.ID,
 		&i.UserID,
 		&i.UserChatID,
+		&i.UserName,
 		&i.CanReply,
 		&i.IsEnabled,
 		&i.CreatedAt,
@@ -29,7 +30,7 @@ func (q *Queries) GetConnection(ctx context.Context, id string) (BusinessConnect
 }
 
 const getConnectionByUser = `-- name: GetConnectionByUser :one
-SELECT id, user_id, user_chat_id, can_reply, is_enabled, created_at, updated_at FROM business_connections WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1
+SELECT id, user_id, user_chat_id, user_name, can_reply, is_enabled, created_at, updated_at FROM business_connections WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1
 `
 
 // Последнее подключение данного владельца (для команд в личке бота).
@@ -40,6 +41,7 @@ func (q *Queries) GetConnectionByUser(ctx context.Context, userID int64) (Busine
 		&i.ID,
 		&i.UserID,
 		&i.UserChatID,
+		&i.UserName,
 		&i.CanReply,
 		&i.IsEnabled,
 		&i.CreatedAt,
@@ -63,21 +65,23 @@ func (q *Queries) SetConnectionEnabled(ctx context.Context, arg SetConnectionEna
 }
 
 const upsertConnection = `-- name: UpsertConnection :one
-INSERT INTO business_connections (id, user_id, user_chat_id, can_reply, is_enabled, updated_at)
-VALUES ($1, $2, $3, $4, $5, NOW())
+INSERT INTO business_connections (id, user_id, user_chat_id, user_name, can_reply, is_enabled, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, NOW())
 ON CONFLICT (id) DO UPDATE SET
     user_id = EXCLUDED.user_id,
     user_chat_id = EXCLUDED.user_chat_id,
+    user_name = COALESCE(EXCLUDED.user_name, business_connections.user_name),
     can_reply = EXCLUDED.can_reply,
     is_enabled = EXCLUDED.is_enabled,
     updated_at = NOW()
-RETURNING id, user_id, user_chat_id, can_reply, is_enabled, created_at, updated_at
+RETURNING id, user_id, user_chat_id, user_name, can_reply, is_enabled, created_at, updated_at
 `
 
 type UpsertConnectionParams struct {
 	ID         string
 	UserID     int64
 	UserChatID int64
+	UserName   *string
 	CanReply   bool
 	IsEnabled  bool
 }
@@ -89,6 +93,7 @@ func (q *Queries) UpsertConnection(ctx context.Context, arg UpsertConnectionPara
 		arg.ID,
 		arg.UserID,
 		arg.UserChatID,
+		arg.UserName,
 		arg.CanReply,
 		arg.IsEnabled,
 	)
@@ -97,6 +102,7 @@ func (q *Queries) UpsertConnection(ctx context.Context, arg UpsertConnectionPara
 		&i.ID,
 		&i.UserID,
 		&i.UserChatID,
+		&i.UserName,
 		&i.CanReply,
 		&i.IsEnabled,
 		&i.CreatedAt,

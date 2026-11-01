@@ -12,7 +12,7 @@ import (
 )
 
 // handleUserCommand обрабатывает команды, которые владелец пишет боту в личку:
-// /start, /status, /stats.
+// /start, /status.
 func (r *Runner) handleUserCommand(ctx context.Context, m *models.Message) {
 	if m.From == nil {
 		return
@@ -25,8 +25,6 @@ func (r *Runner) handleUserCommand(ctx context.Context, m *models.Message) {
 		r.send(ctx, chatID, startText)
 	case "/status":
 		r.cmdStatus(ctx, chatID, userID)
-	case "/stats":
-		r.cmdStats(ctx, chatID, userID)
 	default:
 		// Непонятная команда или обычный текст — подсказываем /start.
 		if strings.HasPrefix(m.Text, "/") {
@@ -36,11 +34,10 @@ func (r *Runner) handleUserCommand(ctx context.Context, m *models.Message) {
 }
 
 const startText = "👋 <b>Chatkeeper</b> — ваш личный архив переписок.\n\n" +
-	"Я сохраняю сообщения из ваших личных чатов (через Telegram Business) и сообщаю об " +
+	"Я пересылаю вам сообщения из ваших личных чатов (через Telegram Business) и сообщаю об " +
 	"удалениях и правках.\n\n" +
 	"<b>Команды:</b>\n" +
-	"/status — состояние подключения\n" +
-	"/stats — сколько сообщений сохранено\n\n" +
+	"/status — состояние подключения\n\n" +
 	"⚠️ Чтобы всё заработало, подключите бота в настройках Telegram Business.\n" +
 	"Какие чаты логировать (и какие исключить) — настраивается там же, в настройках Telegram."
 
@@ -62,24 +59,6 @@ func (r *Runner) cmdStatus(ctx context.Context, chatID, userID int64) {
 	r.send(ctx, chatID, fmt.Sprintf(
 		"📊 <b>Статус</b>\nПодключение: %s\nМожет отвечать: %v\nID подключения: <code>%s</code>",
 		state, conn.CanReply, esc(conn.ID)))
-}
-
-func (r *Runner) cmdStats(ctx context.Context, chatID, userID int64) {
-	conn, err := r.vault.GetConnectionByUser(ctx, userID)
-	if errors.Is(err, service.ErrNotFound) {
-		r.send(ctx, chatID, "Сначала подключите бота (см. /status).")
-		return
-	}
-	if err != nil {
-		r.send(ctx, chatID, "Ошибка при получении статистики.")
-		return
-	}
-	n, err := r.vault.CountMessages(ctx, conn.ID)
-	if err != nil {
-		r.send(ctx, chatID, "Ошибка при подсчёте сообщений.")
-		return
-	}
-	r.send(ctx, chatID, fmt.Sprintf("📈 Сохранено сообщений: <b>%d</b>", n))
 }
 
 // parseCommand вытаскивает саму команду из текста, обрезая аргументы и имя бота

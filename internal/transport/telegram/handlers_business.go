@@ -27,16 +27,35 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 	// Исходящее = отправитель и есть владелец аккаунта.
 	isOutgoing := m.From != nil && m.From.ID == conn.UserID
 
+	partner := chatPartnerName(m.Chat)
+	sender := senderName(m.From)
+
+	var recipient string
+	if isOutgoing {
+		recipient = partner
+		// Если имя владельца ещё не сохранено в подключении — обновим его
+		if m.From != nil && (conn.UserName == nil || *conn.UserName == "") {
+			_ = r.vault.SaveConnection(ctx, conn.ID, conn.UserID, conn.UserChatID, sender, conn.CanReply, conn.IsEnabled)
+		}
+	} else {
+		if conn.UserName != nil && *conn.UserName != "" {
+			recipient = *conn.UserName
+		} else {
+			recipient = "Вы"
+		}
+	}
+
 	media, hasMedia := extractMedia(m)
 	in := service.IncomingMessage{
-		ConnectionID: m.BusinessConnectionID,
-		ChatID:       m.Chat.ID,
-		MessageID:    int64(m.ID),
-		SenderID:     senderID(m),
-		SenderName:   senderName(m.From),
-		IsOutgoing:   isOutgoing,
-		Text:         messageText(m),
-		SentAt:       time.Unix(int64(m.Date), 0),
+		ConnectionID:  m.BusinessConnectionID,
+		ChatID:        m.Chat.ID,
+		MessageID:     int64(m.ID),
+		SenderID:      senderID(m),
+		SenderName:    sender,
+		RecipientName: recipient,
+		IsOutgoing:    isOutgoing,
+		Text:          messageText(m),
+		SentAt:        time.Unix(int64(m.Date), 0),
 	}
 	if hasMedia {
 		in.MediaType = media.kind

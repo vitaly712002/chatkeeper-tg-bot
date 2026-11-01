@@ -114,5 +114,27 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
+// UpdateMessageLocalPath привязывает путь к сохранённому файлу на диске по file_id.
+func (s *Store) UpdateMessageLocalPath(ctx context.Context, fileID, localPath string) error {
+	_, err := s.pool.Exec(ctx,
+		"UPDATE tracked_messages SET local_path = $1 WHERE file_id = $2",
+		localPath, fileID,
+	)
+	return err
+}
+
+// GetLocalPathByFileID ищет сохранённый локальный путь по file_id.
+func (s *Store) GetLocalPathByFileID(ctx context.Context, fileID string) (string, error) {
+	var path string
+	err := s.pool.QueryRow(ctx,
+		"SELECT local_path FROM tracked_messages WHERE file_id = $1 AND local_path IS NOT NULL AND local_path != '' LIMIT 1",
+		fileID,
+	).Scan(&path)
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // Чтобы линтер не ругался на неиспользуемый импорт pgx в некоторых сборках.
 var _ = pgx.ErrNoRows
