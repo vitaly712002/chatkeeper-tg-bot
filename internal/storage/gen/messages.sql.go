@@ -186,6 +186,7 @@ ON CONFLICT (connection_id, chat_id, message_id) DO UPDATE SET
     encrypted_text = EXCLUDED.encrypted_text,
     media_type = EXCLUDED.media_type,
     file_id = EXCLUDED.file_id,
+    local_path = COALESCE(EXCLUDED.local_path, tracked_messages.local_path),
     recipient_name = COALESCE(EXCLUDED.recipient_name, tracked_messages.recipient_name)
 RETURNING id, connection_id, chat_id, message_id, sender_id, sender_name, recipient_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at
 `

@@ -42,6 +42,7 @@ type IncomingMessage struct {
 	Text          string // открытый текст; шифруется внутри сервиса
 	MediaType     string // "" если медиа нет
 	FileID        string // "" если медиа нет
+	LocalPath     string // "" если нет сохранённого локального файла
 	SentAt        time.Time
 }
 
@@ -114,6 +115,7 @@ func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) error {
 		EncryptedText: encText,
 		MediaType:     nullStr(in.MediaType),
 		FileID:        nullStr(in.FileID),
+		LocalPath:     nullStr(in.LocalPath),
 		SentAt:        toTimestamptz(in.SentAt),
 	})
 	return err

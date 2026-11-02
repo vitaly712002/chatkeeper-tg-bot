@@ -67,10 +67,15 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 		return
 	}
 
-	// Перехват исчезающих медиа: если владелец ответил (reply) на исчезающее
-	// медиа — пробуем скачать оригинал, пока он не исчез.
-	if isOutgoing && m.ReplyToMessage != nil {
-		r.tryRescueMedia(ctx, conn.UserChatID, m.ReplyToMessage)
+	// Перехват исчезающих медиа:
+	// 1. Если само сообщение m является исчезающим медиа — спасаем его сразу при получении.
+	if isDisappearingMedia(m) {
+		r.tryRescueMedia(ctx, conn, m.Chat.ID, partner, m, false)
+	}
+
+	// 2. Если в сообщении есть ответ (reply) на исчезающее медиа — спасаем оригинал из reply.
+	if m.ReplyToMessage != nil && isDisappearingMedia(m.ReplyToMessage) {
+		r.tryRescueMedia(ctx, conn, m.Chat.ID, partner, m.ReplyToMessage, true)
 	}
 }
 

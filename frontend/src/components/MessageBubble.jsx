@@ -8,6 +8,8 @@ import {
   Image as ImageIcon,
   Download,
   Loader2,
+  Eye,
+  Maximize2,
 } from 'lucide-react';
 import { getMediaUrl } from '../api';
 import { parseTelegramName } from '../utils';
@@ -15,7 +17,7 @@ import { parseTelegramName } from '../utils';
 // Один «пузырь» сообщения. Ожидаемая форма:
 // { id, sender_name, recipient_name, is_outgoing, text, media_type, file_id, sent_at,
 //   deleted_at (null если не удалено), edited (bool) }
-export default function MessageBubble({ msg, onShowEdits, fallbackOwner, fallbackPartner }) {
+export default function MessageBubble({ msg, onShowEdits, onPreviewMedia, fallbackOwner, fallbackPartner }) {
   const deleted = !!msg.deleted_at;
   const outgoing = !!msg.is_outgoing;
 
@@ -60,7 +62,9 @@ export default function MessageBubble({ msg, onShowEdits, fallbackOwner, fallbac
           </span>
         </div>
 
-        {msg.media_type && msg.file_id && <MediaView type={msg.media_type} fileId={msg.file_id} />}
+        {msg.media_type && msg.file_id && (
+          <MediaView type={msg.media_type} fileId={msg.file_id} onPreviewMedia={onPreviewMedia} />
+        )}
 
         {msg.text && (
           <div
@@ -98,9 +102,9 @@ export default function MessageBubble({ msg, onShowEdits, fallbackOwner, fallbac
   );
 }
 
-// Отображение медиа. По умолчанию ленивое: показывается плашка с кнопкой загрузки,
-// и только при клике медиа запрашивается и скачивается с сервера.
-function MediaView({ type, fileId }) {
+// Отображение медиа. По умолчанию ленивое: показывается плашка с кнопкой просмотра,
+// и только при клике медиа запрашивается с сервера.
+function MediaView({ type, fileId, onPreviewMedia }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const url = getMediaUrl(fileId);
@@ -117,7 +121,7 @@ function MediaView({ type, fileId }) {
           setIsLoaded(true);
         }}
         className="w-full max-w-sm flex items-center justify-between gap-3 px-3 py-2.5 my-1.5 rounded-xl bg-slate-900/60 hover:bg-slate-900/80 border border-slate-700/60 hover:border-indigo-500/50 transition-all text-left group cursor-pointer"
-        title="Нажмите для загрузки"
+        title="Нажмите для просмотра"
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center shrink-0 group-hover:bg-indigo-600/30 group-hover:text-indigo-300 transition-colors">
@@ -127,12 +131,12 @@ function MediaView({ type, fileId }) {
             <div className="text-xs font-medium text-slate-200 group-hover:text-indigo-200 transition-colors truncate">
               {label}
             </div>
-            <div className="text-[10px] text-slate-400">Нажмите для загрузки</div>
+            <div className="text-[10px] text-slate-400">Нажмите для просмотра</div>
           </div>
         </div>
 
         <div className="shrink-0 text-slate-400 group-hover:text-indigo-300 transition-colors">
-          <Download className="w-4 h-4" />
+          <Eye className="w-4 h-4" />
         </div>
       </button>
     );
@@ -140,36 +144,51 @@ function MediaView({ type, fileId }) {
 
   if (type === 'photo' || type === 'sticker') {
     return (
-      <div className="relative my-1.5">
+      <div
+        className="relative my-1.5 inline-block cursor-pointer group"
+        onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type) })}
+        title="Нажмите для полноэкранного просмотра"
+      >
         {loading && (
           <div className="w-48 h-36 rounded-xl bg-slate-900/60 flex items-center justify-center text-xs text-slate-400 animate-pulse">
             <Loader2 className="w-4 h-4 animate-spin text-indigo-400 mr-2" /> Загрузка…
           </div>
         )}
-        <a href={url} target="_blank" rel="noreferrer">
-          <img
-            src={url}
-            alt={labelFor(type)}
-            onLoad={() => setLoading(false)}
-            onError={() => setLoading(false)}
-            className={`rounded-xl max-h-72 w-auto object-cover hover:opacity-95 transition-opacity ${
-              loading ? 'hidden' : 'block'
-            }`}
-          />
-        </a>
+        <img
+          src={url}
+          alt={labelFor(type)}
+          onLoad={() => setLoading(false)}
+          onError={() => setLoading(false)}
+          className={`rounded-xl max-h-72 w-auto object-cover hover:opacity-95 transition-all shadow-md group-hover:ring-2 group-hover:ring-indigo-500/50 ${
+            loading ? 'hidden' : 'block'
+          }`}
+        />
+        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
+          <span className="p-2 rounded-full bg-slate-900/80 text-white backdrop-blur-sm shadow-lg">
+            <Maximize2 className="w-4 h-4" />
+          </span>
+        </div>
       </div>
     );
   }
 
   if (type === 'video' || type === 'video_note' || type === 'animation') {
     return (
-      <div className="my-1.5">
+      <div className="relative my-1.5 group inline-block">
         <video
           src={url}
           controls
           autoPlay
           className="rounded-xl max-h-72 w-auto"
         />
+        <button
+          type="button"
+          onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type) })}
+          className="absolute top-2 right-2 p-1.5 rounded-lg bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-900 transition-all shadow opacity-0 group-hover:opacity-100"
+          title="Полноэкранный просмотр"
+        >
+          <Maximize2 className="w-3.5 h-3.5" />
+        </button>
       </div>
     );
   }
@@ -184,14 +203,14 @@ function MediaView({ type, fileId }) {
 
   const Icon = iconFor(type);
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200 my-1 px-3 py-2 rounded-xl bg-slate-900/60 border border-slate-700/60"
+    <button
+      type="button"
+      onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type) })}
+      className="inline-flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200 my-1 px-3 py-2 rounded-xl bg-slate-900/60 border border-slate-700/60 hover:border-indigo-500/50 transition-colors"
+      title="Просмотр и скачивание документа"
     >
       <Icon className="w-4 h-4" /> {labelFor(type)}
-    </a>
+    </button>
   );
 }
 

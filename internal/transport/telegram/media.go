@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+
+	"github.com/vitaly/chatkeeper-tg-bot/internal/service"
+	"github.com/vitaly/chatkeeper-tg-bot/internal/storage/gen"
 )
 
 // isDisappearingMedia проверяет, является ли сообщение исчезающим (view-once) медиа.
@@ -24,27 +29,88 @@ func isDisappearingMedia(m *models.Message) bool {
 	return len(m.Photo) > 0 || m.Video != nil || m.Voice != nil
 }
 
-// tryRescueMedia пытается "спасти" исчезающее медиа из сообщения, на которое
-// ответил владелец. Срабатывает ТОЛЬКО для исчезающих медиа (view-once).
+// tryRescueMedia пытается "спасти" исчезающее медиа (из самого сообщения или из reply).
+// Срабатывает ТОЛЬКО для исчезающих медиа (view-once).
 // Обычные фото, видео, кружочки (video_note), стикеры и документы игнорируются.
 // Логика:
 //  1. Проверяем, что сообщение действительно исчезающее.
-//  2. Через GetFile получаем путь к файлу на серверах Telegram.
-//  3. Скачиваем байты, пока файл ещё доступен.
-//  4. Сохраняем копию на диск и отправляем владельцу в личный чат.
-func (r *Runner) tryRescueMedia(ctx context.Context, ownerChatID int64, replied *models.Message) {
-	if !isDisappearingMedia(replied) {
+//  2. Скачиваем байты через GetFile, пока файл ещё доступен на серверах Telegram.
+//  3. Сохраняем копию на локальный диск в media-хранилище.
+//  4. Сохраняем/обновляем сообщение в tracked_messages с local_path,
+//     чтобы веб-приложение могло сразу отобразить и открыть файл.
+//  5. Если это чужое исчезающее медиа — отправляем владельцу копию в личный чат Telegram.
+func (r *Runner) tryRescueMedia(ctx context.Context, conn gen.BusinessConnection, chatID int64, partner string, target *models.Message, isReply bool) {
+	if !isDisappearingMedia(target) {
 		return // не исчезающее медиа — игнорируем
 	}
 
-	media, ok := extractMedia(replied)
+	media, ok := extractMedia(target)
 	if !ok {
-		return // в reply нет медиа — спасать нечего
+		return // нет медиа — спасать нечего
 	}
 
 	// Разрешаем только исчезающие фото, видео и голосовые (кружки, стикеры и т.д. отсекаются)
 	if media.kind != "photo" && media.kind != "video" && media.kind != "voice" {
 		return
+	}
+
+	// Определяем отправителя и получателя target-сообщения
+	var targetSenderID int64
+	var targetSenderName string
+	var targetIsOutgoing bool
+	if target.From != nil {
+		targetSenderID = target.From.ID
+		targetSenderName = senderName(target.From)
+		targetIsOutgoing = target.From.ID == conn.UserID
+	} else {
+		// В личных чатах, если поле From отсутствует: автор — собеседник
+		targetSenderName = partner
+		targetIsOutgoing = false
+	}
+
+	var targetRecipient string
+	if targetIsOutgoing {
+		targetRecipient = partner
+	} else if conn.UserName != nil && *conn.UserName != "" {
+		targetRecipient = *conn.UserName
+	} else {
+		targetRecipient = "Вы"
+	}
+
+	sentAt := time.Now()
+	if target.Date > 0 {
+		sentAt = time.Unix(int64(target.Date), 0)
+	}
+
+	saveAndLink := func(savedPath string) {
+		in := service.IncomingMessage{
+			ConnectionID:  conn.ID,
+			ChatID:        chatID,
+			MessageID:     int64(target.ID),
+			SenderID:      targetSenderID,
+			SenderName:    targetSenderName,
+			RecipientName: targetRecipient,
+			IsOutgoing:    targetIsOutgoing,
+			Text:          messageText(target),
+			MediaType:     media.kind,
+			FileID:        media.fileID,
+			LocalPath:     savedPath,
+			SentAt:        sentAt,
+		}
+		if err := r.vault.SaveMessage(ctx, in); err != nil {
+			r.log.Error("не удалось сохранить спасённое сообщение в базу", "err", err)
+		}
+		if err := r.vault.SetMessageLocalPath(ctx, media.fileID, savedPath); err != nil {
+			r.log.Error("не удалось привязать local_path к сообщению", "err", err)
+		}
+	}
+
+	// Проверяем: возможно, этот файл уже был скачан и сохранён на диск ранее
+	if existingPath, err := r.vault.GetLocalPathByFileID(ctx, media.fileID); err == nil && existingPath != "" {
+		if _, err := os.Stat(existingPath); err == nil {
+			saveAndLink(existingPath)
+			return
+		}
 	}
 
 	// Шаг 1: узнаём путь к файлу на серверах Telegram.
@@ -61,22 +127,19 @@ func (r *Runner) tryRescueMedia(ctx context.Context, ownerChatID int64, replied 
 		return
 	}
 
-	// Шаг 3: сохраняем копию на диск (на случай, если захотим потом).
+	// Шаг 3: сохраняем копию на диск.
 	path, err := r.media.Save(data, media.ext)
 	if err != nil {
 		r.log.Error("не удалось сохранить медиа на диск", "err", err)
-		// продолжаем — всё равно попробуем отправить владельцу
 	} else {
-		r.log.Info("исчезающее медиа спасено", "path", path, "kind", media.kind)
-		// Привязываем сохранённый файл к сообщению в БД, чтобы веб-панель могла его отобразить и скачать
-		if err := r.vault.SetMessageLocalPath(ctx, media.fileID, path); err != nil {
-			r.log.Error("не удалось привязать local_path к сообщению", "err", err)
-		}
+		r.log.Info("исчезающее медиа спасено на диск", "path", path, "kind", media.kind)
+		saveAndLink(path)
 	}
 
-	// Шаг 4: отправляем копию владельцу. Загружаем именно байты (а не file_id),
-	// потому что исходный file_id исчезающего медиа может стать недоступен.
-	r.sendRescuedMedia(ctx, ownerChatID, media, data)
+	// Шаг 4: отправляем копию владельцу в личный чат бота, если это чужое исчезающее медиа.
+	if !targetIsOutgoing {
+		r.sendRescuedMedia(ctx, conn.UserChatID, media, data)
+	}
 }
 
 // downloadFile скачивает содержимое по URL.

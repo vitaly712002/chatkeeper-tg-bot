@@ -1,9 +1,13 @@
 package httpapi
 
 import (
+	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/go-telegram/bot"
 )
@@ -21,6 +25,8 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	// 1. Проверяем, есть ли сохранённая копия на локальном диске (спасённые исчезающие медиа)
 	if localPath, err := s.vault.GetLocalPathByFileID(r.Context(), fileID); err == nil && localPath != "" {
 		if _, err := os.Stat(localPath); err == nil {
+			filename := mediaFilename(fileID, localPath, "")
+			w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
 			w.Header().Set("Cache-Control", "private, max-age=3600")
 			http.ServeFile(w, r, localPath)
 			return
@@ -54,10 +60,64 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Пробрасываем тип содержимого и кешируем в браузере на час.
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = mime.TypeByExtension(filepath.Ext(file.FilePath))
+	}
+	if ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
+
+	filename := mediaFilename(fileID, file.FilePath, ct)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// mediaFilename формирует безопасное имя файла с правильным расширением для скачивания.
+func mediaFilename(fileID, filePath, contentType string) string {
+	ext := filepath.Ext(filePath)
+	if ext == "" && contentType != "" {
+		mediaType, _, _ := mime.ParseMediaType(contentType)
+		switch strings.ToLower(mediaType) {
+		case "image/jpeg", "image/jpg":
+			ext = ".jpg"
+		case "image/png":
+			ext = ".png"
+		case "image/webp":
+			ext = ".webp"
+		case "image/gif":
+			ext = ".gif"
+		case "video/mp4":
+			ext = ".mp4"
+		case "audio/ogg", "application/ogg":
+			ext = ".ogg"
+		case "audio/mpeg", "audio/mp3":
+			ext = ".mp3"
+		default:
+			if exts, _ := mime.ExtensionsByType(mediaType); len(exts) > 0 {
+				ext = exts[0]
+			}
+		}
+	}
+
+	base := filepath.Base(filePath)
+	if base != "" && base != "." && base != "/" {
+		if filepath.Ext(base) != "" {
+			return base
+		}
+		if ext != "" {
+			return base + ext
+		}
+	}
+
+	shortID := fileID
+	if len(shortID) > 16 {
+		shortID = shortID[:16]
+	}
+	if ext == "" {
+		ext = ".jpg"
+	}
+	return "media_" + shortID + ext
 }

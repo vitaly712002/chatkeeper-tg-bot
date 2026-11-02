@@ -3,6 +3,7 @@ import { MessageSquare, RefreshCw, ChevronUp } from 'lucide-react';
 import { getChatMessages } from '../api';
 import MessageBubble from './MessageBubble';
 import EditHistory from './EditHistory';
+import MediaModal from './MediaModal';
 import { parseTelegramName } from '../utils';
 
 const PAGE = 50;
@@ -14,6 +15,7 @@ export default function ChatView({ chatId, connectionId, chatTitle, ownerName, p
   const [error, setError] = useState('');
   const [hasMore, setHasMore] = useState(false);
   const [editTarget, setEditTarget] = useState(null); // сообщение для модалки правок
+  const [previewMedia, setPreviewMedia] = useState(null); // медиа для модалки просмотра (лайтбокс)
   const bottomRef = useRef(null);
 
   // Первичная загрузка при смене чата или пользователя.
@@ -152,6 +154,7 @@ export default function ChatView({ chatId, connectionId, chatTitle, ownerName, p
             key={m.id}
             msg={m}
             onShowEdits={setEditTarget}
+            onPreviewMedia={setPreviewMedia}
             fallbackOwner={effectiveOwner}
             fallbackPartner={effectivePartner}
           />
@@ -160,6 +163,7 @@ export default function ChatView({ chatId, connectionId, chatTitle, ownerName, p
       </div>
 
       {editTarget && <EditHistory message={editTarget} onClose={() => setEditTarget(null)} />}
+      {previewMedia && <MediaModal media={previewMedia} onClose={() => setPreviewMedia(null)} />}
     </div>
   );
 }
