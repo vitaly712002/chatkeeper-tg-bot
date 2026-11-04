@@ -17,12 +17,18 @@ import (
 	"github.com/vitaly/chatkeeper-tg-bot/internal/service"
 )
 
+// EventBroadcaster отправляет события в веб-панель через WebSocket.
+type EventBroadcaster interface {
+	Broadcast(eventType string, data any)
+}
+
 // Runner владеет ботом и зависимостями, запускает приём обновлений.
 type Runner struct {
 	cfg   config.Config
 	bot   *bot.Bot
 	vault *service.Vault
 	media *service.MediaStore
+	hub   EventBroadcaster
 	log   *slog.Logger
 }
 
@@ -39,8 +45,8 @@ var allowedUpdates = bot.AllowedUpdates{
 
 // New создаёт Runner. Сам бот (*bot.Bot) настраивается здесь: мы задаём
 // один общий обработчик (dispatch), который сам разбирает тип обновления.
-func New(cfg config.Config, vault *service.Vault, media *service.MediaStore, log *slog.Logger) (*Runner, error) {
-	r := &Runner{cfg: cfg, vault: vault, media: media, log: log}
+func New(cfg config.Config, vault *service.Vault, media *service.MediaStore, hub EventBroadcaster, log *slog.Logger) (*Runner, error) {
+	r := &Runner{cfg: cfg, vault: vault, media: media, hub: hub, log: log}
 
 	opts := []bot.Option{
 		bot.WithDefaultHandler(r.dispatch),

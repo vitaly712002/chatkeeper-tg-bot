@@ -26,6 +26,15 @@ func (r *Runner) handleBusinessConnection(ctx context.Context, bc *models.Busine
 	r.log.Info("business_connection обновлено",
 		"id", bc.ID, "user_id", bc.User.ID, "enabled", bc.IsEnabled)
 
+	if r.hub != nil {
+		r.hub.Broadcast("connection_updated", map[string]any{
+			"connection_id": bc.ID,
+			"user_id":       bc.User.ID,
+			"user_name":     ownerName,
+			"is_enabled":    bc.IsEnabled,
+		})
+	}
+
 	// Приветствуем владельца в его личном чате с ботом.
 	if bc.IsEnabled {
 		r.send(ctx, bc.UserChatID,

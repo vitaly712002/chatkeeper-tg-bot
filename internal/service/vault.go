@@ -93,18 +93,18 @@ func (v *Vault) GetConnectionByUser(ctx context.Context, userID int64) (gen.Busi
 	return conn, err
 }
 
-// SaveMessage шифрует текст и записывает сообщение в базу.
-func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) error {
+// SaveMessage шифрует текст и записывает сообщение в базу, возвращая готовое для показа MessageView.
+func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) (MessageView, error) {
 	var encText []byte
 	if in.Text != "" {
 		var err error
 		encText, err = v.cipher.EncryptString(in.Text)
 		if err != nil {
-			return err
+			return MessageView{}, err
 		}
 	}
 
-	_, err := v.store.InsertMessage(ctx, gen.InsertMessageParams{
+	row, err := v.store.InsertMessage(ctx, gen.InsertMessageParams{
 		ConnectionID:  in.ConnectionID,
 		ChatID:        in.ChatID,
 		MessageID:     in.MessageID,
@@ -118,7 +118,23 @@ func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) error {
 		LocalPath:     nullStr(in.LocalPath),
 		SentAt:        toTimestamptz(in.SentAt),
 	})
-	return err
+	if err != nil {
+		return MessageView{}, err
+	}
+
+	return MessageView{
+		ID:            row.ID,
+		MessageID:     row.MessageID,
+		SenderName:    row.SenderName,
+		RecipientName: derefStr(row.RecipientName),
+		IsOutgoing:    row.IsOutgoing,
+		Text:          in.Text,
+		MediaType:     derefStr(row.MediaType),
+		FileID:        derefStr(row.FileID),
+		SentAt:        row.SentAt.Time,
+		DeletedAt:     nil,
+		Edited:        false,
+	}, nil
 }
 
 // GetDeleted достаёт и расшифровывает сообщение, которое только что удалили.

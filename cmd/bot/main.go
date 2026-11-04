@@ -70,22 +70,26 @@ func run(log *slog.Logger) error {
 	cleaner := service.NewCleaner(store, cfg.TTLDays, cfg.CleanupInterval, log)
 	go cleaner.Run(ctx)
 
-	// 6. Telegram-транспорт.
-	runner, err := telegram.New(cfg, vault, mediaStore, log)
+	// 6. WebSocket Hub для отправки событий в веб-панель в реальном времени.
+	wsHub := httpapi.NewHub(log)
+	go wsHub.Run(ctx)
+
+	// 7. Telegram-транспорт.
+	runner, err := telegram.New(cfg, vault, mediaStore, wsHub, log)
 	if err != nil {
 		return err
 	}
 
-	// 7. REST API для веб-панели — в отдельной горутине (использует клиент бота
-	//    для отдачи медиа).
-	api := httpapi.New(cfg, vault, runner.Bot(), mediaStore, log)
+	// 8. REST API и WebSocket для веб-панели — в отдельной горутине (использует
+	//    клиент бота для отдачи медиа).
+	api := httpapi.New(cfg, vault, runner.Bot(), mediaStore, wsHub, log)
 	go func() {
 		if err := api.Start(ctx); err != nil {
 			log.Error("REST API остановлен с ошибкой", "err", err)
 		}
 	}()
 
-	// 8. Telegram-транспорт — запускается последним и блокирует до завершения.
+	// 9. Telegram-транспорт — запускается последним и блокирует до завершения.
 	log.Info("бот запускается")
 	if err := runner.Start(ctx); err != nil {
 		return err

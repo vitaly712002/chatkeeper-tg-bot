@@ -97,7 +97,7 @@ func (r *Runner) tryRescueMedia(ctx context.Context, conn gen.BusinessConnection
 			LocalPath:     savedPath,
 			SentAt:        sentAt,
 		}
-		if err := r.vault.SaveMessage(ctx, in); err != nil {
+		if _, err := r.vault.SaveMessage(ctx, in); err != nil {
 			r.log.Error("не удалось сохранить спасённое сообщение в базу", "err", err)
 		}
 		if err := r.vault.SetMessageLocalPath(ctx, media.fileID, savedPath); err != nil {

@@ -41,7 +41,7 @@ export default function MessageBubble({ msg, onShowEdits, onPreviewMedia, fallba
 
   return (
     <div className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 ${bubbleClass}`}>
+      <div className={`max-w-[88%] sm:max-w-[78%] md:max-w-[75%] rounded-2xl px-3 sm:px-3.5 py-2 ${bubbleClass}`}>
         <div className="text-[11px] font-medium mb-1 flex items-center gap-1.5 flex-wrap">
           <span className={outgoing ? 'text-indigo-300 font-semibold' : 'text-emerald-400 font-semibold'}>
             {fromInfo.name}

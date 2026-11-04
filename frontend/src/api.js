@@ -118,3 +118,101 @@ export function getMediaUrl(fileId) {
   const token = localStorage.getItem('token') || '';
   return `${API_BASE}/media/${encodeURIComponent(fileId)}?t=${encodeURIComponent(token)}`;
 }
+
+// WebSocket клиент реального времени для синхронизации сообщений и чатов.
+export function createWebSocketClient(onEvent, onStatusChange) {
+  let ws = null;
+  let reconnectTimer = null;
+  let isDestroyed = false;
+  let retryCount = 0;
+  let pingInterval = null;
+
+  function getWsUrl() {
+    const token = localStorage.getItem('token') || '';
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}/api/ws?token=${encodeURIComponent(token)}`;
+  }
+
+  function connect() {
+    if (isDestroyed) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      if (onStatusChange) onStatusChange('disconnected');
+      return;
+    }
+
+    if (onStatusChange) onStatusChange('connecting');
+
+    try {
+      ws = new WebSocket(getWsUrl());
+    } catch (e) {
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      retryCount = 0;
+      if (onStatusChange) onStatusChange('connected');
+
+      // Heartbeat ping каждые 25 сек для поддержания соединения через прокси
+      clearInterval(pingInterval);
+      pingInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send('ping');
+        }
+      }, 25000);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const text = event.data;
+        if (!text) return;
+        const lines = text.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const msg = JSON.parse(trimmed);
+          if (msg.type === 'pong') continue;
+          if (onEvent) onEvent(msg);
+        }
+      } catch (err) {
+        console.error('Ошибка разбора WebSocket сообщения:', err);
+      }
+    };
+
+    ws.onclose = () => {
+      clearInterval(pingInterval);
+      if (onStatusChange) onStatusChange('disconnected');
+      if (!isDestroyed) {
+        scheduleReconnect();
+      }
+    };
+
+    ws.onerror = () => {
+      if (ws) {
+        try { ws.close(); } catch (_) {}
+      }
+    };
+  }
+
+  function scheduleReconnect() {
+    if (isDestroyed) return;
+    clearTimeout(reconnectTimer);
+    const delay = Math.min(1000 * Math.pow(1.5, retryCount), 10000);
+    retryCount++;
+    reconnectTimer = setTimeout(connect, delay);
+  }
+
+  connect();
+
+  return {
+    disconnect() {
+      isDestroyed = true;
+      clearTimeout(reconnectTimer);
+      clearInterval(pingInterval);
+      if (ws) {
+        try { ws.close(); } catch (_) {}
+      }
+    },
+  };
+}

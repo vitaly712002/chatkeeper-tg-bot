@@ -108,3 +108,24 @@ func TestAuthMiddleware(t *testing.T) {
 		t.Errorf("с query-токеном ожидали 200, получили %d", w.Code)
 	}
 }
+
+// TestWebSocketAuth: без токена -> 401, с невалидным токеном -> 401.
+func TestWebSocketAuth(t *testing.T) {
+	s := testServer()
+
+	// Без токена
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/ws", nil)
+	s.handleWebSocket(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("без токена ожидали 401, получили %d", w.Code)
+	}
+
+	// С невалидным токеном
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/ws?token=bad-token", nil)
+	s.handleWebSocket(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("с невалидным токеном ожидали 401, получили %d", w.Code)
+	}
+}

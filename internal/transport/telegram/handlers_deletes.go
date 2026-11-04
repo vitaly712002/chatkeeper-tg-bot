@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -20,10 +21,13 @@ func (r *Runner) handleDeletedBusinessMessages(ctx context.Context, d *models.Bu
 		return
 	}
 
+	var deletedIDs []int64
 	for _, msgID := range d.MessageIDs {
 		// Помечаем сообщение удалённым в базе (для показа в веб-панели).
 		if err := r.vault.MarkDeleted(ctx, d.BusinessConnectionID, d.Chat.ID, int64(msgID)); err != nil {
 			r.log.Error("не удалось пометить сообщение удалённым", "msg_id", msgID, "err", err)
+		} else {
+			deletedIDs = append(deletedIDs, int64(msgID))
 		}
 
 		saved, err := r.vault.GetDeleted(ctx, d.BusinessConnectionID, d.Chat.ID, int64(msgID))
@@ -42,6 +46,15 @@ func (r *Runner) handleDeletedBusinessMessages(ctx context.Context, d *models.Bu
 		}
 
 		r.reportDeleted(ctx, conn.UserChatID, saved)
+	}
+
+	if len(deletedIDs) > 0 && r.hub != nil {
+		r.hub.Broadcast("messages_deleted", map[string]any{
+			"connection_id": d.BusinessConnectionID,
+			"chat_id":       d.Chat.ID,
+			"message_ids":   deletedIDs,
+			"deleted_at":    time.Now().UTC(),
+		})
 	}
 }
 

@@ -25,18 +25,22 @@ type Server struct {
 	vault *service.Vault
 	bot   *bot.Bot
 	media *service.MediaStore
+	hub   *Hub
 	log   *slog.Logger
 	http  *http.Server
 }
 
 // New собирает маршруты и возвращает готовый сервер.
-func New(cfg config.Config, vault *service.Vault, b *bot.Bot, media *service.MediaStore, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, vault: vault, bot: b, media: media, log: log}
+func New(cfg config.Config, vault *service.Vault, b *bot.Bot, media *service.MediaStore, hub *Hub, log *slog.Logger) *Server {
+	s := &Server{cfg: cfg, vault: vault, bot: b, media: media, hub: hub, log: log}
 
 	mux := http.NewServeMux()
 
 	// Публичный эндпоинт (без токена).
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+
+	// WebSocket эндпоинт реального времени (авторизация по токену внутри).
+	mux.HandleFunc("GET /api/ws", s.handleWebSocket)
 
 	// Защищённые эндпоинты (оборачиваем в auth-middleware).
 	mux.Handle("GET /api/stats", s.auth(http.HandlerFunc(s.handleStats)))

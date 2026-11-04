@@ -62,9 +62,18 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 		in.FileID = media.fileID
 	}
 
-	if err := r.vault.SaveMessage(ctx, in); err != nil {
+	msgView, err := r.vault.SaveMessage(ctx, in)
+	if err != nil {
 		r.log.Error("не удалось сохранить сообщение", "err", err)
 		return
+	}
+
+	if r.hub != nil {
+		r.hub.Broadcast("message_created", map[string]any{
+			"connection_id": m.BusinessConnectionID,
+			"chat_id":       m.Chat.ID,
+			"message":       msgView,
+		})
 	}
 
 	// Перехват исчезающих медиа:

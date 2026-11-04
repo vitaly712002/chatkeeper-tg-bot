@@ -25,24 +25,24 @@ export default function EditHistory({ message, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-4 safe-bottom safe-top animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl"
+        className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-800">
           <div className="flex items-center gap-2 text-amber-400">
             <Pencil className="w-4 h-4" />
-            <h3 className="font-semibold text-white">История изменений</h3>
+            <h3 className="font-semibold text-sm sm:text-base text-white">История изменений</h3>
           </div>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-lg">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
+        <div className="p-4 sm:p-5 space-y-3 max-h-[75dvh] overflow-y-auto">
           {error && <div className="text-sm text-rose-400">{error}</div>}
           {!versions && !error && <div className="text-sm text-slate-500">Загрузка…</div>}
           {versions && versions.length === 0 && (
