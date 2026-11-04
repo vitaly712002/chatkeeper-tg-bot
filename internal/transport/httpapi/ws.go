@@ -20,8 +20,9 @@ const (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:    1024,
+	WriteBufferSize:   1024,
+	EnableCompression: true,
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Разрешаем подключение с веб-панели
 	},
@@ -55,7 +56,7 @@ func (h *Hub) Run(ctx context.Context) {
 		case <-ctx.Done():
 			h.mu.Lock()
 			for client := range h.clients {
-				close(client.send)
+				client.closeSend()
 				_ = client.conn.Close()
 				delete(h.clients, client)
 			}
@@ -73,7 +74,7 @@ func (h *Hub) Run(ctx context.Context) {
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				close(client.send)
+				client.closeSend()
 			}
 			total := len(h.clients)
 			h.mu.Unlock()
@@ -85,7 +86,7 @@ func (h *Hub) Run(ctx context.Context) {
 				select {
 				case client.send <- message:
 				default:
-					close(client.send)
+					client.closeSend()
 					delete(h.clients, client)
 				}
 			}
@@ -119,9 +120,16 @@ func (h *Hub) Broadcast(eventType string, data any) {
 
 // Client — отдельное WebSocket соединение.
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
+	hub       *Hub
+	conn      *websocket.Conn
+	send      chan []byte
+	closeOnce sync.Once
+}
+
+func (c *Client) closeSend() {
+	c.closeOnce.Do(func() {
+		close(c.send)
+	})
 }
 
 func (c *Client) readPump() {
@@ -145,6 +153,7 @@ func (c *Client) readPump() {
 		}
 		// Простая обработка текстового пинга от клиента
 		if strings.TrimSpace(string(msg)) == "ping" {
+			_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 			select {
 			case c.send <- []byte(`{"type":"pong"}`):
 			default:
@@ -153,7 +162,7 @@ func (c *Client) readPump() {
 	}
 }
 
-func (c *Client) writePump(ctx context.Context) {
+func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -161,12 +170,10 @@ func (c *Client) writePump(ctx context.Context) {
 	}()
 	for {
 		select {
-		case <-ctx.Done():
-			_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-			return
 		case message, ok := <-c.send:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
+				// Hub закрыл канал send (клиент отключен или сервер останавливается)
 				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -225,6 +232,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	client := &Client{hub: s.hub, conn: conn, send: make(chan []byte, 256)}
 	s.hub.register <- client
 
-	go client.writePump(r.Context())
+	// Запускаем writePump и readPump без r.Context(),
+	// так как соединение hijacked и outlives HTTP request lifecycle!
+	go client.writePump()
 	go client.readPump()
 }

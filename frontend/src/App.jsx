@@ -29,6 +29,12 @@ export default function App() {
   const [wsStatus, setWsStatus] = useState('disconnected');
   const [lastWsEvent, setLastWsEvent] = useState(null);
 
+  // Реф для хранения текущего selectedConnectionId без разрыва WebSocket-соединения
+  const selectedConnectionIdRef = useRef(selectedConnectionId);
+  useEffect(() => {
+    selectedConnectionIdRef.current = selectedConnectionId;
+  }, [selectedConnectionId]);
+
   // 1. Первичная загрузка списка пользователей и общей статистики после авторизации
   useEffect(() => {
     if (!user) return;
@@ -69,7 +75,8 @@ export default function App() {
 
   // 3. Подключение WebSocket для мгновенной синхронизации в реальном времени
   const handleWsEvent = useCallback((event) => {
-    setLastWsEvent(event);
+    // Добавляем timestamp, чтобы гарантировать вызов useEffect в ChatView при любых событиях
+    setLastWsEvent({ ...event, _ts: Date.now() });
     const { type, data } = event;
     if (!data) return;
 
@@ -100,32 +107,33 @@ export default function App() {
       );
 
       // Если сообщение относится к текущему активному пользователю — обновляем список чатов
-      setChats((prev) => {
-        const existingIdx = prev.findIndex((c) => String(c.chat_id) === String(chat_id));
-        const previewText = message.text || (message.media_type ? `📎 [${message.media_type}]` : '—');
+      const currentConnId = selectedConnectionIdRef.current;
+      if (!currentConnId || connection_id === currentConnId) {
+        setChats((prev) => {
+          const existingIdx = prev.findIndex((c) => String(c.chat_id) === String(chat_id));
+          const previewText = message.text || (message.media_type ? `📎 [${message.media_type}]` : '—');
 
-        if (existingIdx !== -1) {
-          const updatedChat = {
-            ...prev[existingIdx],
-            last_text: previewText,
-            last_at: message.sent_at,
-            count: (Number(prev[existingIdx].count) || 0) + 1,
-          };
-          // Перемещаем чат с новым сообщением наверх списка (как в Telegram)
-          const rest = prev.filter((_, idx) => idx !== existingIdx);
-          return [updatedChat, ...rest];
-        } else {
-          // Если чата ещё не было в списке — перезагружаем список чатов
-          if (connection_id === selectedConnectionId) {
-            getChats(connection_id)
+          if (existingIdx !== -1) {
+            const updatedChat = {
+              ...prev[existingIdx],
+              last_text: previewText,
+              last_at: message.sent_at,
+              count: (Number(prev[existingIdx].count) || 0) + 1,
+            };
+            // Перемещаем чат с новым сообщением наверх списка (как в Telegram)
+            const rest = prev.filter((_, idx) => idx !== existingIdx);
+            return [updatedChat, ...rest];
+          } else {
+            // Если чата ещё не было в списке — перезагружаем список чатов
+            getChats(currentConnId)
               .then((fresh) => {
                 if (Array.isArray(fresh)) setChats(fresh);
               })
               .catch(() => {});
+            return prev;
           }
-          return prev;
-        }
-      });
+        });
+      }
     } else if (type === 'message_edited') {
       const { chat_id, new_text } = data;
       setStats((prev) =>
@@ -168,7 +176,7 @@ export default function App() {
         })
         .catch(() => {});
     }
-  }, [selectedConnectionId]);
+  }, []); // Пустой массив зависимостей: соединение стабильно и не рвётся при смене чатов
 
   useEffect(() => {
     if (!user) return;

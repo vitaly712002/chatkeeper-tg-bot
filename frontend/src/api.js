@@ -203,6 +203,18 @@ export function createWebSocketClient(onEvent, onStatusChange) {
     reconnectTimer = setTimeout(connect, delay);
   }
 
+  // Мгновенное пробуждение сокета при выходе из спящего режима (разблокировка iPhone)
+  const handleWakeup = () => {
+    if (document.visibilityState === 'visible' && (!ws || ws.readyState >= WebSocket.CLOSING)) {
+      retryCount = 0;
+      clearTimeout(reconnectTimer);
+      connect();
+    }
+  };
+
+  window.addEventListener('online', handleWakeup);
+  document.addEventListener('visibilitychange', handleWakeup);
+
   connect();
 
   return {
@@ -210,6 +222,8 @@ export function createWebSocketClient(onEvent, onStatusChange) {
       isDestroyed = true;
       clearTimeout(reconnectTimer);
       clearInterval(pingInterval);
+      window.removeEventListener('online', handleWakeup);
+      document.removeEventListener('visibilitychange', handleWakeup);
       if (ws) {
         try { ws.close(); } catch (_) {}
       }

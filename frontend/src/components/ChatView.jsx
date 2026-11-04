@@ -71,17 +71,19 @@ export default function ChatView({
     const { type, data } = lastWsEvent;
     if (!data) return;
 
-    const matchesChat = String(data.chat_id) === String(chatId) &&
-      (!connectionId || !data.connection_id || data.connection_id === connectionId);
-
+    // Сверяем ID чата
+    const matchesChat = String(data.chat_id) === String(chatId);
     if (!matchesChat) return;
 
     if (type === 'message_created' && data.message) {
       const newMsg = data.message;
       setMessages((prev) => {
-        if (prev.some((m) => m.id === newMsg.id || (m.message_id === newMsg.message_id && m.sent_at === newMsg.sent_at))) {
-          return prev;
-        }
+        const isDuplicate = prev.some(
+          (m) =>
+            (newMsg.id && Number(m.id) === Number(newMsg.id)) ||
+            (Number(m.message_id) === Number(newMsg.message_id) && Number(m.message_id) !== 0)
+        );
+        if (isDuplicate) return prev;
         return [...prev, newMsg];
       });
 
