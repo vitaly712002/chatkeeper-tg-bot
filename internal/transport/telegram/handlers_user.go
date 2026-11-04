@@ -56,18 +56,9 @@ func (r *Runner) cmdStatus(ctx context.Context, chatID, userID int64) {
 	if !conn.IsEnabled {
 		state = "выключено ⛔️"
 	}
-
-	replyStatus := "включено ✅ (отправка из веба доступна)"
-	if !conn.CanReply {
-		replyStatus = "выключено ❌\n<i>Для включения: Настройки → Telegram для бизнеса → Чат-боты → включить «Разрешить отвечать»</i>"
-	}
-
 	r.send(ctx, chatID, fmt.Sprintf(
-		"📊 <b>Статус подключения</b>\n\n"+
-			"• Статус: %s\n"+
-			"• Право отвечать: %s\n"+
-			"• ID подключения: <code>%s</code>",
-		state, replyStatus, esc(conn.ID)))
+		"📊 <b>Статус</b>\nПодключение: %s\nМожет отвечать: %v\nID подключения: <code>%s</code>",
+		state, conn.CanReply, esc(conn.ID)))
 }
 
 // parseCommand вытаскивает саму команду из текста, обрезая аргументы и имя бота
