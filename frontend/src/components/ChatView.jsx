@@ -1,6 +1,20 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
-import { MessageSquare, RefreshCw, ArrowLeft, Loader2, ArrowDown } from 'lucide-react';
-import { getChatMessages } from '../api';
+import {
+  MessageSquare,
+  RefreshCw,
+  ArrowLeft,
+  Loader2,
+  ArrowDown,
+  Paperclip,
+  Mic,
+  Send,
+  Trash2,
+  X,
+  Reply,
+  AlertCircle,
+  FileText,
+} from 'lucide-react';
+import { getChatMessages, sendMessage, sendMedia, deleteMessage } from '../api';
 import MessageBubble from './MessageBubble';
 import EditHistory from './EditHistory';
 import MediaModal from './MediaModal';
@@ -8,7 +22,25 @@ import { parseTelegramName } from '../utils';
 
 const PAGE = 50;
 
-// Правая колонка / экран мобильного — лента сообщений выбранного чата.
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let val = bytes;
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024;
+    i++;
+  }
+  return `${val.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function formatDuration(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+// Правая колонка / экран мобильного — лента сообщений выбранного чата и форма отправки от лица бота.
 export default function ChatView({
   chatId,
   connectionId,
@@ -27,12 +59,41 @@ export default function ChatView({
   const [editTarget, setEditTarget] = useState(null);
   const [previewMedia, setPreviewMedia] = useState(null);
 
+  // Состояние отправки сообщений, файлов и голосовых
+  const [inputText, setInputText] = useState('');
+  const [replyTo, setReplyTo] = useState(null);
+  const [pendingFile, setPendingFile] = useState(null);
+  const [isSending, setIsSending] = useState(false);
+  const [actionError, setActionError] = useState('');
+
+  // Запись голосового сообщения
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+
+  // Модалка подтверждения удаления
+  const [deleteConfirmMsg, setDeleteConfirmMsg] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const scrollContainerRef = useRef(null);
   const topSentinelRef = useRef(null);
   const bottomRef = useRef(null);
   const loadingOlderRef = useRef(false);
   const pendingScrollAdjustRef = useRef(null);
   const isNearBottomRef = useRef(true);
+
+  const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioStreamRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingIntervalRef = useRef(null);
+
+  // Очистка таймеров и микрофона при размонтировании
+  useEffect(() => {
+    return () => {
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+      if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
 
   // 1. Первичная загрузка сообщений при смене чата или пользователя.
   useEffect(() => {
@@ -43,6 +104,15 @@ export default function ChatView({
     loadingOlderRef.current = false;
     pendingScrollAdjustRef.current = null;
     setError('');
+    setActionError('');
+    setReplyTo(null);
+    setPendingFile(null);
+    setInputText('');
+
+    if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+    if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach((t) => t.stop());
+    setIsRecording(false);
+    setRecordingDuration(0);
 
     getChatMessages(chatId, { connectionId, limit: PAGE })
       .then((data) => {
@@ -204,7 +274,7 @@ export default function ChatView({
     isNearBottomRef.current = distanceFromBottom < 120;
     setShowScrollBottom(distanceFromBottom > 280);
 
-    // Резервная проверка приближения к верху (на случай тач-фликов на мобильном)
+    // Резервная проверка приближения к верху
     if (target.scrollTop < 120 && hasMore && !loadingOlderRef.current && !loading && messages.length > 0) {
       loadOlder();
     }
@@ -226,6 +296,224 @@ export default function ChatView({
       })
       .catch((e) => setError(e.message || 'Ошибка загрузки'))
       .finally(() => setLoading(false));
+  };
+
+  // --- Отправка сообщений, файлов и голосовых ---
+
+  const handleSend = async (e) => {
+    if (e) e.preventDefault();
+    if (isSending || isRecording) return;
+
+    const trimmed = inputText.trim();
+    if (!trimmed && !pendingFile) return;
+
+    setIsSending(true);
+    setActionError('');
+
+    try {
+      let res;
+      if (pendingFile) {
+        res = await sendMedia(chatId, {
+          file: pendingFile.file,
+          type: pendingFile.type,
+          caption: trimmed,
+          replyToMessageId: replyTo?.message_id,
+          connectionId,
+        });
+      } else {
+        res = await sendMessage(chatId, {
+          text: trimmed,
+          replyToMessageId: replyTo?.message_id,
+          connectionId,
+        });
+      }
+
+      if (res && res.id) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === res.id || m.message_id === res.message_id)) return prev;
+          return [...prev, res];
+        });
+      }
+
+      setInputText('');
+      setPendingFile(null);
+      setReplyTo(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    } catch (err) {
+      setActionError(err.message || 'Ошибка отправки');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    let type = 'document';
+    if (file.type.startsWith('image/')) {
+      type = file.type === 'image/gif' ? 'animation' : 'photo';
+    } else if (file.type.startsWith('video/')) {
+      type = 'video';
+    } else if (file.type.startsWith('audio/')) {
+      type = 'voice';
+    }
+
+    const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+    setPendingFile({ file, type, name: file.name, size: file.size, previewUrl });
+  };
+
+  // Запись аудио с микрофона (голосовое сообщение)
+  const startRecording = async () => {
+    setActionError('');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setActionError('Запись аудио не поддерживается вашим браузером');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+
+      let mimeType = '';
+      if (window.MediaRecorder) {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+          mimeType = 'audio/ogg';
+        }
+      }
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(100);
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (e) {
+      console.error(e);
+      setActionError('Не удалось включить микрофон: ' + (e.message || 'Доступ запрещён'));
+    }
+  };
+
+  const cancelRecording = () => {
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current = null;
+    }
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingDuration(0);
+  };
+
+  const stopAndSendRecording = () => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
+
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+
+    const recorder = mediaRecorderRef.current;
+    const stream = audioStreamRef.current;
+
+    recorder.onstop = async () => {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        audioStreamRef.current = null;
+      }
+
+      const mimeType = recorder.mimeType || 'audio/ogg';
+      const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('webm') ? 'webm' : 'ogg';
+      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+
+      if (audioBlob.size === 0) {
+        cancelRecording();
+        return;
+      }
+
+      const audioFile = new File([audioBlob], `voice.${ext}`, { type: mimeType });
+
+      setIsSending(true);
+      setActionError('');
+      try {
+        const res = await sendMedia(chatId, {
+          file: audioFile,
+          type: 'voice',
+          caption: '',
+          replyToMessageId: replyTo?.message_id,
+          connectionId,
+        });
+
+        if (res && res.id) {
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === res.id || m.message_id === res.message_id)) return prev;
+            return [...prev, res];
+          });
+        }
+        setReplyTo(null);
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      } catch (err) {
+        setActionError(err.message || 'Ошибка отправки голосового');
+      } finally {
+        setIsSending(false);
+        setIsRecording(false);
+        setRecordingDuration(0);
+        audioChunksRef.current = [];
+      }
+    };
+
+    recorder.stop();
+  };
+
+  // Удаление сообщения в Telegram (для обоих участников)
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmMsg || isDeleting) return;
+    setIsDeleting(true);
+    setActionError('');
+
+    try {
+      await deleteMessage(chatId, deleteConfirmMsg.message_id, { connectionId });
+      // Помечаем удалённым локально
+      setMessages((prev) =>
+        prev.map((m) =>
+          Number(m.message_id) === Number(deleteConfirmMsg.message_id)
+            ? { ...m, deleted_at: new Date().toISOString() }
+            : m
+        )
+      );
+      setDeleteConfirmMsg(null);
+    } catch (err) {
+      setActionError(err.message || 'Ошибка удаления в Telegram');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   if (!chatId) {
@@ -316,7 +604,7 @@ export default function ChatView({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-2.5 sm:px-4 py-3 sm:py-4 space-y-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
+        className="flex-1 overflow-y-auto px-2.5 sm:px-4 py-3 sm:py-4 space-y-2"
       >
         {/* Сенсор верхней границы для автоматического loading list */}
         <div ref={topSentinelRef} className="h-1 w-full pointer-events-none" />
@@ -353,18 +641,20 @@ export default function ChatView({
 
         {!loading && messages.length === 0 && !error && (
           <div className="py-16 text-center text-xs text-slate-500">
-            В этом чате пока нет сообщений.
+            В этом чате пока нет сообщений. Напишите первое сообщение ниже!
           </div>
         )}
 
         {messages.map((m) => (
           <MessageBubble
-            key={m.id}
+            key={m.id || m.message_id}
             msg={m}
             onShowEdits={setEditTarget}
             onPreviewMedia={setPreviewMedia}
             fallbackOwner={effectiveOwner}
             fallbackPartner={effectivePartner}
+            onReply={(msg) => setReplyTo(msg)}
+            onDelete={(msg) => setDeleteConfirmMsg(msg)}
           />
         ))}
 
@@ -375,12 +665,261 @@ export default function ChatView({
       {showScrollBottom && (
         <button
           onClick={scrollToBottom}
-          className="absolute right-4 bottom-[max(1.25rem,env(safe-area-inset-bottom))] p-2.5 rounded-full bg-indigo-600/90 hover:bg-indigo-600 text-white shadow-xl shadow-indigo-600/30 backdrop-blur border border-indigo-400/30 transition-all hover:scale-105 active:scale-95 z-20"
+          className="absolute right-4 bottom-24 p-2.5 rounded-full bg-indigo-600/90 hover:bg-indigo-600 text-white shadow-xl shadow-indigo-600/30 backdrop-blur border border-indigo-400/30 transition-all hover:scale-105 active:scale-95 z-20"
           title="Прокрутить в конец"
           aria-label="Вниз"
         >
           <ArrowDown className="w-4 h-4" />
         </button>
+      )}
+
+      {/* Нижняя панель действий и отправки сообщений от лица бота */}
+      <div className="border-t border-slate-800/90 bg-slate-900/85 backdrop-blur shrink-0 px-3 sm:px-4 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
+        {/* Ошибка отправки/удаления */}
+        {actionError && (
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs rounded-xl animate-in fade-in">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span className="truncate">{actionError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActionError('')}
+              className="p-1 hover:text-white rounded-lg transition-colors shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Плашка ответа на сообщение */}
+        {replyTo && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/25 rounded-xl text-xs text-slate-300 animate-in fade-in">
+            <div className="flex items-center gap-2 min-w-0">
+              <Reply className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <div className="min-w-0 flex items-center gap-1.5 truncate">
+                <span className="font-semibold text-indigo-300 shrink-0">
+                  {replyTo.is_outgoing ? 'Вы' : replyTo.sender_name || 'Собеседник'}:
+                </span>
+                <span className="text-slate-400 truncate">
+                  {replyTo.text || (replyTo.media_type ? `[${replyTo.media_type}]` : 'Сообщение')}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              className="p-1 text-slate-400 hover:text-slate-200 rounded-md transition-colors shrink-0"
+              title="Отменить ответ"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Превью прикрепленного файла */}
+        {pendingFile && (
+          <div className="flex items-center justify-between gap-2 p-2 bg-slate-800/80 border border-slate-700/60 rounded-xl text-xs text-slate-300 animate-in fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {pendingFile.previewUrl ? (
+                <img
+                  src={pendingFile.previewUrl}
+                  alt="Превью"
+                  className="w-10 h-10 rounded-lg object-cover border border-slate-700 shrink-0"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-lg bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="font-medium text-slate-200 truncate">{pendingFile.name}</div>
+                <div className="text-[10px] text-slate-400">{formatBytes(pendingFile.size)}</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingFile(null);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+              className="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg transition-colors shrink-0"
+              title="Удалить вложение"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Панель активной записи голосового сообщения */}
+        {isRecording ? (
+          <div className="flex items-center justify-between gap-3 px-3 py-2 bg-rose-500/10 border border-rose-500/30 rounded-2xl animate-in fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="relative flex h-3 w-3 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500" />
+              </span>
+              <span className="text-xs font-mono font-semibold text-rose-300">
+                {formatDuration(recordingDuration)}
+              </span>
+              <span className="text-xs text-slate-400 hidden sm:inline">
+                Запись голосового сообщения…
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 active:bg-rose-500/20 rounded-xl transition-colors"
+                title="Отменить запись"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={stopAndSendRecording}
+                disabled={isSending}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-rose-600/30 transition-all disabled:opacity-50"
+                title="Отправить голосовое"
+              >
+                {isSending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Отправить</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Обычный ввод текста */
+          <form onSubmit={handleSend} className="flex items-end gap-1.5 sm:gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              className="hidden"
+              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+            />
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800/80 active:bg-slate-800 rounded-xl transition-colors shrink-0"
+              title="Прикрепить файл (фото, видео, документ)"
+              aria-label="Прикрепить файл"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
+
+            <div className="flex-1 min-w-0 relative">
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder={
+                  pendingFile
+                    ? 'Добавьте подпись к файлу… (Enter для отправки)'
+                    : 'Написать сообщение от лица бота… (Enter для отправки)'
+                }
+                rows={1}
+                className="w-full resize-none rounded-xl bg-slate-950/80 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-500 outline-none transition-all max-h-32 leading-relaxed"
+                style={{ minHeight: '38px' }}
+              />
+            </div>
+
+            {/* Если текст пустой и файла нет — микрофон для записи ГС, иначе — кнопка отправки */}
+            {!inputText.trim() && !pendingFile ? (
+              <button
+                type="button"
+                onClick={startRecording}
+                className="p-2.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 active:bg-slate-800 rounded-xl transition-colors shrink-0"
+                title="Записать голосовое сообщение"
+                aria-label="Голосовое сообщение"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isSending || (!inputText.trim() && !pendingFile)}
+                className="p-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl transition-all shadow-md shadow-indigo-600/30 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Отправить сообщение"
+                aria-label="Отправить"
+              >
+                {isSending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </button>
+            )}
+          </form>
+        )}
+      </div>
+
+      {/* Модальное окно подтверждения удаления сообщения в Telegram */}
+      {deleteConfirmMsg && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-100">Удалить в Telegram?</h3>
+                <p className="text-xs text-slate-400">ID сообщения: {deleteConfirmMsg.message_id}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Сообщение будет удалено ботом в Telegram <strong className="text-slate-100">для обоих собеседников</strong> и помечено как удалённое в архиве.
+            </p>
+
+            {deleteConfirmMsg.text && (
+              <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-400 truncate max-h-16">
+                «{deleteConfirmMsg.text}»
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 justify-end pt-1">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeleteConfirmMsg(null)}
+                className="px-3.5 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 active:bg-rose-700 rounded-xl transition-colors shadow-lg shadow-rose-600/30 disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Удаление…</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Удалить везде</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {editTarget && <EditHistory message={editTarget} onClose={() => setEditTarget(null)} />}

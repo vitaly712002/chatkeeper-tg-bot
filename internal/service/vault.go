@@ -93,6 +93,16 @@ func (v *Vault) GetConnectionByUser(ctx context.Context, userID int64) (gen.Busi
 	return conn, err
 }
 
+// GetLastConnectionByChat возвращает connection_id последнего сообщения в данном чате.
+func (v *Vault) GetLastConnectionByChat(ctx context.Context, chatID int64) (string, error) {
+	return v.store.GetLastConnectionByChat(ctx, chatID)
+}
+
+// GetChatParticipants возвращает имена владельца и собеседника чата.
+func (v *Vault) GetChatParticipants(ctx context.Context, chatID int64) (ownerName, partnerName string) {
+	return v.store.GetChatParticipants(ctx, chatID)
+}
+
 // SaveMessage шифрует текст и записывает сообщение в базу, возвращая готовое для показа MessageView.
 func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) (MessageView, error) {
 	var encText []byte

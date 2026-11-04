@@ -144,5 +144,34 @@ func (s *Store) GetLocalPathByFileID(ctx context.Context, fileID string) (string
 	return path, nil
 }
 
+// GetLastConnectionByChat ищет connection_id последнего сообщения в данном чате.
+func (s *Store) GetLastConnectionByChat(ctx context.Context, chatID int64) (string, error) {
+	var connID string
+	err := s.pool.QueryRow(ctx,
+		"SELECT connection_id FROM tracked_messages WHERE chat_id = $1 ORDER BY id DESC LIMIT 1",
+		chatID,
+	).Scan(&connID)
+	return connID, err
+}
+
+// GetChatParticipants возвращает имена владельца и собеседника чата.
+func (s *Store) GetChatParticipants(ctx context.Context, chatID int64) (owner string, partner string) {
+	var o, p *string
+	_ = s.pool.QueryRow(ctx, `
+		SELECT
+			(SELECT tm.sender_name FROM tracked_messages tm WHERE tm.chat_id = $1 AND tm.is_outgoing = TRUE ORDER BY tm.sent_at DESC LIMIT 1),
+			(SELECT tm.sender_name FROM tracked_messages tm WHERE tm.chat_id = $1 AND tm.is_outgoing = FALSE ORDER BY tm.sent_at DESC LIMIT 1)
+	`, chatID).Scan(&o, &p)
+	owner = "Вы"
+	partner = "Собеседник"
+	if o != nil && *o != "" {
+		owner = *o
+	}
+	if p != nil && *p != "" {
+		partner = *p
+	}
+	return owner, partner
+}
+
 // Чтобы линтер не ругался на неиспользуемый импорт pgx в некоторых сборках.
 var _ = pgx.ErrNoRows

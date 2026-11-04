@@ -112,6 +112,78 @@ export function getMessageEdits(messageId) {
   return apiGet(`/messages/${messageId}/edits`);
 }
 
+// Отправка текстового сообщения от лица бота через Telegram Business
+export async function sendMessage(chatId, { text, replyToMessageId = null, connectionId = null } = {}) {
+  const token = localStorage.getItem('token');
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/chats/${encodeURIComponent(chatId)}/messages`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      text,
+      reply_to_message_id: replyToMessageId,
+      connection_id: connectionId,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Ошибка отправки (${res.status})`);
+  }
+  return data;
+}
+
+// Отправка медиафайла (фото, видео, аудио/гс, документ) от лица бота
+export async function sendMedia(chatId, { file, type = '', caption = '', replyToMessageId = null, connectionId = null } = {}) {
+  const token = localStorage.getItem('token');
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const formData = new FormData();
+  formData.append('file', file);
+  if (type) formData.append('type', type);
+  if (caption) formData.append('caption', caption);
+  if (replyToMessageId) formData.append('reply_to_message_id', String(replyToMessageId));
+  if (connectionId) formData.append('connection_id', connectionId);
+
+  const res = await fetch(`${API_BASE}/chats/${encodeURIComponent(chatId)}/media`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Ошибка отправки медиа (${res.status})`);
+  }
+  return data;
+}
+
+// Удаление сообщения в Telegram (для обоих участников) и в базе
+export async function deleteMessage(chatId, messageId, { connectionId = null } = {}) {
+  const token = localStorage.getItem('token');
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let url = `${API_BASE}/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`;
+  if (connectionId) {
+    url += `?connection_id=${encodeURIComponent(connectionId)}`;
+  }
+
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers,
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Ошибка удаления (${res.status})`);
+  }
+  return data;
+}
+
 // URL медиа для вставки в <img>/<video>. Токен передаём в query, т.к. тег <img>
 // не умеет слать заголовок Authorization (см. примечание в docs/10-webapp-plan.md).
 export function getMediaUrl(fileId) {

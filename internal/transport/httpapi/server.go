@@ -48,6 +48,9 @@ func New(cfg config.Config, vault *service.Vault, b *bot.Bot, media *service.Med
 	mux.Handle("GET /api/users", s.auth(http.HandlerFunc(s.handleUsers)))
 	mux.Handle("GET /api/chats", s.auth(http.HandlerFunc(s.handleChats)))
 	mux.Handle("GET /api/chats/{chatId}/messages", s.auth(http.HandlerFunc(s.handleMessages)))
+	mux.Handle("POST /api/chats/{chatId}/messages", s.auth(http.HandlerFunc(s.handleSendMessage)))
+	mux.Handle("POST /api/chats/{chatId}/media", s.auth(http.HandlerFunc(s.handleSendMedia)))
+	mux.Handle("DELETE /api/chats/{chatId}/messages/{messageId}", s.auth(http.HandlerFunc(s.handleDeleteMessage)))
 	mux.Handle("GET /api/messages/{id}/edits", s.auth(http.HandlerFunc(s.handleEdits)))
 	// Медиа: токен может прийти в query (?t=...), т.к. <img> не шлёт заголовки.
 	mux.Handle("GET /api/media/{fileId}", s.auth(http.HandlerFunc(s.handleMedia)))

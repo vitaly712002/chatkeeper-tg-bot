@@ -10,6 +10,9 @@ import {
   Loader2,
   Eye,
   Maximize2,
+  Reply,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { getMediaUrl } from '../api';
 import { parseTelegramName } from '../utils';
@@ -17,9 +20,25 @@ import { parseTelegramName } from '../utils';
 // Один «пузырь» сообщения. Ожидаемая форма:
 // { id, sender_name, recipient_name, is_outgoing, text, media_type, file_id, sent_at,
 //   deleted_at (null если не удалено), edited (bool) }
-export default function MessageBubble({ msg, onShowEdits, onPreviewMedia, fallbackOwner, fallbackPartner }) {
+export default function MessageBubble({
+  msg,
+  onShowEdits,
+  onPreviewMedia,
+  fallbackOwner,
+  fallbackPartner,
+  onReply,
+  onDelete,
+}) {
+  const [copied, setCopied] = useState(false);
   const deleted = !!msg.deleted_at;
   const outgoing = !!msg.is_outgoing;
+
+  const handleCopy = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   // Цвет пузыря: удалённые — красные, исходящие — индиго, входящие — серые.
   const bubbleClass = deleted
@@ -80,22 +99,58 @@ export default function MessageBubble({ msg, onShowEdits, onPreviewMedia, fallba
           <div className="text-sm italic text-slate-500">[пустое сообщение]</div>
         )}
 
-        <div className="mt-1 flex items-center gap-2 justify-end text-[11px] text-slate-400">
-          {msg.edited && (
-            <button
-              onClick={() => onShowEdits(msg)}
-              className="inline-flex items-center gap-1 text-amber-400 hover:text-amber-300"
-              title="История изменений"
-            >
-              <Pencil className="w-3 h-3" /> изменено
-            </button>
-          )}
-          {deleted && (
-            <span className="inline-flex items-center gap-1 text-rose-400">
-              <Trash2 className="w-3 h-3" /> удалено
-            </span>
-          )}
-          <span>{fmtTime(msg.sent_at)}</span>
+        <div className="mt-1.5 pt-1 border-t border-slate-700/30 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+          <div className="flex items-center gap-1">
+            {onReply && !deleted && (
+              <button
+                type="button"
+                onClick={() => onReply(msg)}
+                className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-slate-700/50 active:bg-slate-700 transition-colors"
+                title="Ответить"
+              >
+                <Reply className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {msg.text && (
+              <button
+                type="button"
+                onClick={() => handleCopy(msg.text)}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 active:bg-slate-700 transition-colors"
+                title="Скопировать текст"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            )}
+            {!deleted && onDelete && (
+              <button
+                type="button"
+                onClick={() => onDelete(msg)}
+                className="p-1 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 active:bg-rose-500/20 transition-colors"
+                title="Удалить сообщение в Telegram"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {msg.edited && (
+              <button
+                type="button"
+                onClick={() => onShowEdits(msg)}
+                className="inline-flex items-center gap-1 text-amber-400 hover:text-amber-300"
+                title="История изменений"
+              >
+                <Pencil className="w-3 h-3" /> изм.
+              </button>
+            )}
+            {deleted && (
+              <span className="inline-flex items-center gap-1 text-rose-400">
+                <Trash2 className="w-3 h-3" /> удалено
+              </span>
+            )}
+            <span>{fmtTime(msg.sent_at)}</span>
+          </div>
         </div>
       </div>
     </div>

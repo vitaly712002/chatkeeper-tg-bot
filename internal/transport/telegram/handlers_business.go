@@ -24,8 +24,8 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 		return
 	}
 
-	// Исходящее = отправитель и есть владелец аккаунта.
-	isOutgoing := m.From != nil && m.From.ID == conn.UserID
+	// Исходящее = отправитель и есть владелец аккаунта или сообщение отправлено бизнес-ботом.
+	isOutgoing := (m.From != nil && m.From.ID == conn.UserID) || m.SenderBusinessBot != nil
 
 	partner := chatPartnerName(m.Chat)
 	sender := senderName(m.From)
@@ -33,8 +33,15 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 	var recipient string
 	if isOutgoing {
 		recipient = partner
+		if m.SenderBusinessBot != nil && (sender == "Неизвестный" || (m.From != nil && m.From.IsBot)) {
+			if conn.UserName != nil && *conn.UserName != "" {
+				sender = *conn.UserName
+			} else {
+				sender = "Вы"
+			}
+		}
 		// Если имя владельца ещё не сохранено в подключении или обновилось (например, добавился юзернейм) — обновим его
-		if m.From != nil && (conn.UserName == nil || *conn.UserName == "" || *conn.UserName != sender) {
+		if m.From != nil && !m.From.IsBot && (conn.UserName == nil || *conn.UserName == "" || *conn.UserName != sender) {
 			_ = r.vault.SaveConnection(ctx, conn.ID, conn.UserID, conn.UserChatID, sender, conn.CanReply, conn.IsEnabled)
 		}
 	} else {
