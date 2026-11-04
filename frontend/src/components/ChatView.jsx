@@ -677,15 +677,16 @@ export default function ChatView({
       <div className="border-t border-slate-800/90 bg-slate-900/85 backdrop-blur shrink-0 px-3 sm:px-4 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
         {/* Ошибка отправки/удаления */}
         {actionError && (
-          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs rounded-xl animate-in fade-in">
-            <div className="flex items-center gap-2 min-w-0">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-              <span className="truncate">{actionError}</span>
+          <div className="flex items-start justify-between gap-2.5 px-3.5 py-2.5 bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs rounded-xl animate-in fade-in">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+              <div className="leading-relaxed break-words font-medium">{actionError}</div>
             </div>
             <button
               type="button"
               onClick={() => setActionError('')}
-              className="p-1 hover:text-white rounded-lg transition-colors shrink-0"
+              className="p-1 hover:text-white text-rose-400/80 rounded-lg transition-colors shrink-0 -mr-1"
+              title="Закрыть"
             >
               <X className="w-3.5 h-3.5" />
             </button>
