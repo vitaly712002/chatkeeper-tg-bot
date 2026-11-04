@@ -377,3 +377,163 @@ func extractTextFromMessage(m *models.Message) string {
 	}
 	return m.Caption
 }
+
+type ForwardMessageRequest struct {
+	TargetChatID       int64  `json:"target_chat_id"`
+	TargetConnectionID string `json:"target_connection_id,omitempty"`
+	WithAuthorHeader   bool   `json:"with_author_header,omitempty"`
+}
+
+// POST /api/messages/{id}/forward — пересылка (копирование) сообщения в другой диалог Telegram Business.
+func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
+	msgID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Некорректный id сообщения")
+		return
+	}
+
+	var req ForwardMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Некорректный JSON запроса")
+		return
+	}
+
+	if req.TargetChatID == 0 {
+		writeError(w, http.StatusBadRequest, "Не указан target_chat_id")
+		return
+	}
+
+	// 1. Получаем оригинальное сообщение из хранилища
+	saved, _, err := s.vault.GetMessageByID(r.Context(), msgID)
+	if errors.Is(err, service.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Сообщение не найдено")
+		return
+	}
+	if err != nil {
+		s.log.Error("get message for forward error", "id", msgID, "err", err)
+		writeError(w, http.StatusInternalServerError, "Ошибка получения сообщения")
+		return
+	}
+
+	// 2. Определяем бизнес-подключение для целевого чата
+	conn, err := s.resolveConnection(r, req.TargetChatID, req.TargetConnectionID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// 3. Формируем текст сообщения
+	text := saved.Text
+	if req.WithAuthorHeader {
+		author := saved.SenderName
+		if author == "" {
+			author = "Собеседник"
+		}
+		if saved.IsOutgoing {
+			author = "Вы"
+		}
+		header := fmt.Sprintf("↪️ Переслано от %s:\n\n", author)
+		if text != "" {
+			text = header + text
+		} else {
+			text = strings.TrimSpace(header)
+		}
+	}
+
+	// 4. Отправляем в Telegram через бота с business_connection_id целевого чата
+	var sentMsg *models.Message
+	if saved.MediaType != "" && saved.FileID != "" {
+		inputFile := &models.InputFileString{Data: saved.FileID}
+		switch saved.MediaType {
+		case "photo":
+			sentMsg, err = s.bot.SendPhoto(r.Context(), &bot.SendPhotoParams{
+				BusinessConnectionID: conn.ID,
+				ChatID:               req.TargetChatID,
+				Photo:                inputFile,
+				Caption:              text,
+			})
+		case "voice":
+			sentMsg, err = s.bot.SendVoice(r.Context(), &bot.SendVoiceParams{
+				BusinessConnectionID: conn.ID,
+				ChatID:               req.TargetChatID,
+				Voice:                inputFile,
+				Caption:              text,
+			})
+		case "video":
+			sentMsg, err = s.bot.SendVideo(r.Context(), &bot.SendVideoParams{
+				BusinessConnectionID: conn.ID,
+				ChatID:               req.TargetChatID,
+				Video:                inputFile,
+				Caption:              text,
+			})
+		case "animation":
+			sentMsg, err = s.bot.SendAnimation(r.Context(), &bot.SendAnimationParams{
+				BusinessConnectionID: conn.ID,
+				ChatID:               req.TargetChatID,
+				Animation:            inputFile,
+				Caption:              text,
+			})
+		default:
+			sentMsg, err = s.bot.SendDocument(r.Context(), &bot.SendDocumentParams{
+				BusinessConnectionID: conn.ID,
+				ChatID:               req.TargetChatID,
+				Document:             inputFile,
+				Caption:              text,
+			})
+		}
+	} else {
+		// Обычное текстовое сообщение
+		if text == "" {
+			text = "[пустое сообщение]"
+		}
+		sentMsg, err = s.bot.SendMessage(r.Context(), &bot.SendMessageParams{
+			BusinessConnectionID: conn.ID,
+			ChatID:               req.TargetChatID,
+			Text:                 text,
+		})
+	}
+
+	if err != nil {
+		s.log.Error("forward message telegram error", "target_chat", req.TargetChatID, "err", err)
+		writeError(w, http.StatusBadRequest, "Ошибка пересылки в Telegram: "+err.Error())
+		return
+	}
+
+	// 5. Сохраняем пересланное сообщение в нашей базе данных
+	owner, partner := s.vault.GetChatParticipants(r.Context(), req.TargetChatID)
+	if conn.UserName != nil && *conn.UserName != "" {
+		owner = *conn.UserName
+	}
+
+	in := service.IncomingMessage{
+		ConnectionID:  conn.ID,
+		ChatID:        req.TargetChatID,
+		MessageID:     int64(sentMsg.ID),
+		SenderID:      conn.UserID,
+		SenderName:    owner,
+		RecipientName: partner,
+		IsOutgoing:    true,
+		Text:          text,
+		MediaType:     saved.MediaType,
+		FileID:        saved.FileID,
+		SentAt:        time.Unix(int64(sentMsg.Date), 0),
+	}
+
+	mv, err := s.vault.SaveMessage(r.Context(), in)
+	if err != nil {
+		s.log.Error("save forwarded message error", "target_chat", req.TargetChatID, "err", err)
+		writeError(w, http.StatusInternalServerError, "Сообщение переслано, но не удалось сохранить в базу")
+		return
+	}
+
+	// 6. Оповещаем WebSocket клиентов
+	if s.hub != nil {
+		s.hub.Broadcast("message_created", map[string]any{
+			"connection_id": conn.ID,
+			"chat_id":       req.TargetChatID,
+			"message":       mv,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, mv)
+}

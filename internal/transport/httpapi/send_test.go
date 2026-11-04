@@ -80,3 +80,46 @@ func TestDeleteMessageValidation(t *testing.T) {
 		t.Errorf("ожидался 400, получен %d", w2.Code)
 	}
 }
+
+func TestForwardMessageValidation(t *testing.T) {
+	s := testServer()
+	token, err := s.issueToken("admin")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /api/messages/{id}/forward", s.auth(http.HandlerFunc(s.handleForwardMessage)))
+
+	// 1. Без токена -> 401
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/messages/123/forward", bytes.NewBufferString(`{"target_chat_id":456}`))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("ожидался 401, получен %d", w.Code)
+		}
+	}
+
+	// 2. Некорректный id сообщения -> 400
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/messages/invalid/forward", bytes.NewBufferString(`{"target_chat_id":456}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("ожидался 400, получен %d", w.Code)
+		}
+	}
+
+	// 3. Отсутствует target_chat_id -> 400
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/messages/123/forward", bytes.NewBufferString(`{"target_chat_id":0}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("ожидался 400, получен %d", w.Code)
+		}
+	}
+}

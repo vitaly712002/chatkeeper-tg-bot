@@ -265,6 +265,7 @@ export default function App() {
                 partnerName={selectedChat?.partner_name}
                 onBack={() => setSelectedChatId(null)}
                 lastWsEvent={lastWsEvent}
+                chats={chats}
               />
             </section>
           </div>

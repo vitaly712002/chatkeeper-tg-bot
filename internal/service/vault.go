@@ -103,6 +103,19 @@ func (v *Vault) GetChatParticipants(ctx context.Context, chatID int64) (ownerNam
 	return v.store.GetChatParticipants(ctx, chatID)
 }
 
+// GetMessageByID достаёт сообщение по ID и возвращает расшифрованные данные.
+func (v *Vault) GetMessageByID(ctx context.Context, id int64) (SavedMessage, gen.TrackedMessage, error) {
+	row, err := v.store.GetMessageByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SavedMessage{}, gen.TrackedMessage{}, ErrNotFound
+	}
+	if err != nil {
+		return SavedMessage{}, gen.TrackedMessage{}, err
+	}
+	saved, err := v.decrypt(row)
+	return saved, row, err
+}
+
 // SaveMessage шифрует текст и записывает сообщение в базу, возвращая готовое для показа MessageView.
 func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) (MessageView, error) {
 	var encText []byte

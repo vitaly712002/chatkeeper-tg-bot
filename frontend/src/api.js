@@ -184,6 +184,29 @@ export async function deleteMessage(chatId, messageId, { connectionId = null } =
   return data;
 }
 
+// Пересылка (копирование) сообщения в другой диалог
+export async function forwardMessage(messageId, { targetChatId, targetConnectionId = null, withAuthorHeader = true } = {}) {
+  const token = localStorage.getItem('token');
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/messages/${encodeURIComponent(messageId)}/forward`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      target_chat_id: targetChatId,
+      target_connection_id: targetConnectionId,
+      with_author_header: withAuthorHeader,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Ошибка пересылки (${res.status})`);
+  }
+  return data;
+}
+
 // URL медиа для вставки в <img>/<video>. Токен передаём в query, т.к. тег <img>
 // не умеет слать заголовок Authorization (см. примечание в docs/10-webapp-plan.md).
 export function getMediaUrl(fileId) {

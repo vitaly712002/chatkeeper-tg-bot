@@ -13,6 +13,7 @@ import {
   Reply,
   Copy,
   Check,
+  Forward,
 } from 'lucide-react';
 import { getMediaUrl } from '../api';
 import { parseTelegramName } from '../utils';
@@ -27,6 +28,7 @@ export default function MessageBubble({
   fallbackOwner,
   fallbackPartner,
   onReply,
+  onForward,
   onDelete,
 }) {
   const [copied, setCopied] = useState(false);
@@ -109,6 +111,16 @@ export default function MessageBubble({
                 title="Ответить"
               >
                 <Reply className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onForward && !deleted && (
+              <button
+                type="button"
+                onClick={() => onForward(msg)}
+                className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-slate-700/50 active:bg-slate-700 transition-colors"
+                title="Переслать в другой диалог"
+              >
+                <Forward className="w-3.5 h-3.5" />
               </button>
             )}
             {msg.text && (

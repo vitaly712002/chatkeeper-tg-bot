@@ -13,8 +13,12 @@ import {
   Reply,
   AlertCircle,
   FileText,
+  Forward,
+  Search,
+  CheckCircle2,
+  User,
 } from 'lucide-react';
-import { getChatMessages, sendMessage, sendMedia, deleteMessage } from '../api';
+import { getChatMessages, sendMessage, sendMedia, deleteMessage, forwardMessage } from '../api';
 import MessageBubble from './MessageBubble';
 import EditHistory from './EditHistory';
 import MediaModal from './MediaModal';
@@ -49,6 +53,7 @@ export default function ChatView({
   partnerName,
   onBack,
   lastWsEvent,
+  chats = [],
 }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -73,6 +78,13 @@ export default function ChatView({
   // Модалка подтверждения удаления
   const [deleteConfirmMsg, setDeleteConfirmMsg] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Пересылка сообщений в другой чат
+  const [forwardMsg, setForwardMsg] = useState(null);
+  const [forwardSearch, setForwardSearch] = useState('');
+  const [withAuthorHeader, setWithAuthorHeader] = useState(true);
+  const [isForwarding, setIsForwarding] = useState(false);
+  const [forwardSuccess, setForwardSuccess] = useState('');
 
   const scrollContainerRef = useRef(null);
   const topSentinelRef = useRef(null);
@@ -108,6 +120,7 @@ export default function ChatView({
     setReplyTo(null);
     setPendingFile(null);
     setInputText('');
+    setForwardMsg(null);
 
     if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
     if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -516,6 +529,43 @@ export default function ChatView({
     }
   };
 
+  // Пересылка сообщения в другой диалог
+  const handleForward = async (targetChatId) => {
+    if (!forwardMsg || isForwarding) return;
+    setIsForwarding(true);
+    setActionError('');
+
+    try {
+      await forwardMessage(forwardMsg.id, {
+        targetChatId,
+        targetConnectionId: connectionId,
+        withAuthorHeader,
+      });
+
+      const targetChat = (chats || []).find((c) => String(c.chat_id) === String(targetChatId));
+      const targetName = targetChat?.partner_name || `Чат ${targetChatId}`;
+
+      setForwardMsg(null);
+      setForwardSearch('');
+      setForwardSuccess(`Сообщение переслано в «${targetName}»`);
+      setTimeout(() => setForwardSuccess(''), 4000);
+    } catch (err) {
+      setActionError(err.message || 'Ошибка пересылки сообщения');
+    } finally {
+      setIsForwarding(false);
+    }
+  };
+
+  // Список доступных чатов для пересылки (исключая текущий)
+  const targetChats = (chats || [])
+    .filter((c) => String(c.chat_id) !== String(chatId))
+    .filter((c) => {
+      if (!forwardSearch.trim()) return true;
+      const term = forwardSearch.toLowerCase();
+      const pName = (c.partner_name || c.title || '').toLowerCase();
+      return pName.includes(term) || String(c.chat_id).includes(term);
+    });
+
   if (!chatId) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-slate-500 p-6 text-center">
@@ -654,6 +704,7 @@ export default function ChatView({
             fallbackOwner={effectiveOwner}
             fallbackPartner={effectivePartner}
             onReply={(msg) => setReplyTo(msg)}
+            onForward={(msg) => setForwardMsg(msg)}
             onDelete={(msg) => setDeleteConfirmMsg(msg)}
           />
         ))}
@@ -675,7 +726,24 @@ export default function ChatView({
 
       {/* Нижняя панель действий и отправки сообщений от лица бота */}
       <div className="border-t border-slate-800/90 bg-slate-900/85 backdrop-blur shrink-0 px-3 sm:px-4 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-2">
-        {/* Ошибка отправки/удаления */}
+        {/* Уведомление об успешной пересылке */}
+        {forwardSuccess && (
+          <div className="flex items-center justify-between gap-2 px-3.5 py-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs rounded-xl animate-in fade-in">
+            <div className="flex items-center gap-2 min-w-0">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span className="truncate">{forwardSuccess}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setForwardSuccess('')}
+              className="p-1 hover:text-white text-emerald-400/80 rounded-lg transition-colors shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Ошибка отправки/удаления/пересылки */}
         {actionError && (
           <div className="flex items-start justify-between gap-2.5 px-3.5 py-2.5 bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs rounded-xl animate-in fade-in">
             <div className="flex items-start gap-2.5 min-w-0">
@@ -866,6 +934,125 @@ export default function ChatView({
           </form>
         )}
       </div>
+
+      {/* Модальное окно пересылки сообщения в другой чат */}
+      {forwardMsg && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+            {/* Шапка модалки */}
+            <div className="px-4 py-3.5 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-900/90">
+              <div className="flex items-center gap-2 text-indigo-400">
+                <Forward className="w-5 h-5" />
+                <h3 className="text-sm font-semibold text-slate-100">Переслать сообщение</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForwardMsg(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Тело модалки */}
+            <div className="p-4 space-y-3.5 overflow-y-auto flex-1">
+              {/* Превью пересылаемого сообщения */}
+              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1">
+                <div className="text-[11px] font-medium text-indigo-300">
+                  {forwardMsg.is_outgoing ? 'Вы' : forwardMsg.sender_name || 'Собеседник'}:
+                </div>
+                {forwardMsg.text && (
+                  <div className="text-xs text-slate-200 line-clamp-3 break-words">
+                    {forwardMsg.text}
+                  </div>
+                )}
+                {forwardMsg.media_type && (
+                  <div className="text-[11px] text-slate-400 italic">
+                    📎 [{forwardMsg.media_type}] {forwardMsg.text ? '' : 'Медиавложение'}
+                  </div>
+                )}
+              </div>
+
+              {/* Опция пометки автора */}
+              <label className="flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={withAuthorHeader}
+                  onChange={(e) => setWithAuthorHeader(e.target.checked)}
+                  className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500/40 bg-slate-950 w-4 h-4"
+                />
+                <span>
+                  Добавить плашку автора («↪️ Переслано от: {forwardMsg.is_outgoing ? 'Вы' : forwardMsg.sender_name || 'Собеседник'}»)
+                </span>
+              </label>
+
+              {/* Поле поиска чата */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Поиск диалога по имени…"
+                  value={forwardSearch}
+                  onChange={(e) => setForwardSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 outline-none transition-all"
+                />
+              </div>
+
+              {/* Список диалогов для выбора */}
+              <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                {targetChats.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-500">
+                    {forwardSearch ? 'Диалоги не найдены' : 'Нет доступных диалогов для пересылки'}
+                  </div>
+                ) : (
+                  targetChats.map((c) => {
+                    const pInfo = parseTelegramName(c.partner_name || c.title || `Чат ${c.chat_id}`);
+                    return (
+                      <button
+                        key={c.chat_id}
+                        type="button"
+                        disabled={isForwarding}
+                        onClick={() => handleForward(c.chat_id)}
+                        className="w-full flex items-center justify-between gap-3 p-2.5 rounded-xl hover:bg-slate-800/80 active:bg-slate-800 border border-transparent hover:border-slate-700/60 transition-all text-left disabled:opacity-50 group"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-semibold text-slate-300 shrink-0 group-hover:bg-indigo-600/20 group-hover:text-indigo-300 group-hover:border-indigo-500/30 transition-colors">
+                            {pInfo.name ? pInfo.name.charAt(0).toUpperCase() : <User className="w-3.5 h-3.5" />}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-slate-200 truncate group-hover:text-indigo-200 transition-colors">
+                              {pInfo.name}
+                            </div>
+                            <div className="text-[10px] text-slate-400 truncate">
+                              ID: {c.chat_id}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 text-slate-500 group-hover:text-indigo-400 transition-colors">
+                          <Forward className="w-4 h-4" />
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Подвал модалки */}
+            <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between shrink-0 bg-slate-900/60 text-xs text-slate-400">
+              <span>{isForwarding ? 'Пересылка сообщения…' : 'Нажмите на диалог для отправки'}</span>
+              <button
+                type="button"
+                onClick={() => setForwardMsg(null)}
+                className="px-3 py-1.5 rounded-xl hover:bg-slate-800 text-slate-300 transition-colors"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Модальное окно подтверждения удаления сообщения в Telegram */}
       {deleteConfirmMsg && (
