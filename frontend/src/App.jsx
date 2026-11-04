@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { MessageSquare, Trash2, Pencil, Users, HardDrive } from 'lucide-react';
 import Navbar, { formatBytes } from './components/Navbar';
 import LoginPage from './components/LoginPage';
