@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   Trash2,
   Pencil,
@@ -14,6 +14,8 @@ import {
   Copy,
   Check,
   Forward,
+  Play,
+  Pause,
 } from 'lucide-react';
 import { getMediaUrl } from '../api';
 import { parseTelegramName } from '../utils';
@@ -263,7 +265,7 @@ function MediaView({ type, fileId, onPreviewMedia }) {
   if (type === 'voice' || type === 'audio') {
     return (
       <div className="my-1.5">
-        <audio src={url} controls autoPlay className="w-64 max-w-full" />
+        <VoiceMessagePlayer url={url} fileId={fileId} />
       </div>
     );
   }
@@ -300,6 +302,136 @@ function labelFor(type) {
     animation: 'GIF анимация',
   };
   return map[type] || `Вложение (${type})`;
+}
+
+function VoiceMessagePlayer({ url, fileId }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const audioRef = useRef(null);
+
+  // Генерируем псевдо-детерминированный контур звуковых волн на основе fileId
+  const bars = useMemo(() => {
+    let hash = 0;
+    const str = fileId || 'default-voice-waveform';
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    const result = [];
+    const count = 30;
+    for (let i = 0; i < count; i++) {
+      const seed = Math.sin(hash + i * 1.85) * 10000;
+      const normalized = Math.abs(seed - Math.floor(seed));
+      // Высота бара от 5px до 24px
+      const height = Math.max(5, Math.floor(normalized * 20) + 4);
+      result.push(height);
+    }
+    return result;
+  }, [fileId]);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(() => {});
+    }
+  };
+
+  const toggleRate = () => {
+    if (!audioRef.current) return;
+    const nextRate = playbackRate === 1 ? 1.5 : playbackRate === 1.5 ? 2 : 1;
+    audioRef.current.playbackRate = nextRate;
+    setPlaybackRate(nextRate);
+  };
+
+  const handleSeek = (index) => {
+    if (!audioRef.current || !duration) return;
+    const progress = index / bars.length;
+    const targetTime = progress * duration;
+    audioRef.current.currentTime = targetTime;
+    setCurrentTime(targetTime);
+  };
+
+  const progressPercent = duration > 0 ? currentTime / duration : 0;
+  const activeBarsCount = Math.floor(progressPercent * bars.length);
+
+  const formatAudioTime = (sec) => {
+    if (!sec || isNaN(sec)) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="flex items-center gap-3 py-1.5 px-0.5 min-w-[210px] max-w-[280px] sm:max-w-xs select-none">
+      <audio
+        ref={audioRef}
+        src={url}
+        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
+        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        }}
+        preload="metadata"
+      />
+
+      {/* Круглая кнопка Play/Pause */}
+      <button
+        type="button"
+        onClick={togglePlay}
+        className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white flex items-center justify-center shadow-md shadow-indigo-600/30 shrink-0 transition-transform active:scale-95"
+        title={isPlaying ? 'Пауза' : 'Слушать'}
+      >
+        {isPlaying ? (
+          <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+        ) : (
+          <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5 fill-current" />
+        )}
+      </button>
+
+      {/* Звуковые волны и тайминг */}
+      <div className="flex-1 min-w-0 space-y-1">
+        {/* Интерактивная звуковая волна */}
+        <div
+          className="flex items-center gap-[2.5px] h-6 cursor-pointer py-1"
+          title="Нажмите на волну для перемотки"
+        >
+          {bars.map((height, i) => {
+            const isActive = i <= activeBarsCount;
+            return (
+              <div
+                key={i}
+                onClick={() => handleSeek(i)}
+                style={{ height: `${height}px` }}
+                className={`w-[2.5px] sm:w-[3px] rounded-full transition-colors ${
+                  isActive ? 'bg-indigo-400' : 'bg-slate-600/60 hover:bg-slate-500'
+                }`}
+              />
+            );
+          })}
+        </div>
+
+        {/* Время и переключатель скорости */}
+        <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+          <span>{formatAudioTime(isPlaying ? currentTime : duration || currentTime)}</span>
+          <button
+            type="button"
+            onClick={toggleRate}
+            className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800/90 hover:bg-slate-700 text-slate-300 transition-colors"
+            title="Скорость воспроизведения"
+          >
+            {playbackRate}x
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function fmtTime(iso) {
