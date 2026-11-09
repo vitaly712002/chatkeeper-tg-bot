@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { X, Download, ExternalLink, FileText, Mic, Film, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { X, Download, ExternalLink, FileText, Mic, Film, Image as ImageIcon, Smile, Loader2 } from 'lucide-react';
+import StickerMedia from './StickerMedia';
 
 // Модальное окно (лайтбокс) для просмотра медиафайлов без принудительного скачивания.
 export default function MediaModal({ media, onClose }) {
@@ -26,10 +27,21 @@ export default function MediaModal({ media, onClose }) {
       setDownloading(true);
       const res = await fetch(url);
       const blob = await res.blob();
+      const contentDisp = res.headers.get('content-disposition');
+      let dlName = defaultFilename;
+      if (contentDisp && contentDisp.includes('filename=')) {
+        const match = contentDisp.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) dlName = match[1];
+      } else if (type === 'sticker' && !dlName.includes('.')) {
+        const ct = blob.type;
+        if (ct.includes('video') || ct.includes('webm')) dlName += '.webm';
+        else if (ct.includes('tgsticker') || ct.includes('gzip')) dlName += '.tgs';
+        else dlName += '.webp';
+      }
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
-      a.download = defaultFilename;
+      a.download = dlName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -112,7 +124,13 @@ export default function MediaModal({ media, onClose }) {
         className="flex-1 flex items-center justify-center max-w-5xl w-full overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {type === 'photo' || type === 'sticker' ? (
+        {type === 'sticker' ? (
+          <StickerMedia
+            url={url}
+            fileId={fileId}
+            isModal={true}
+          />
+        ) : type === 'photo' ? (
           <img
             src={url}
             alt={title || 'Фото'}
@@ -164,7 +182,7 @@ function getFilename(type, fileId) {
     case 'photo':
       return `photo_${short}.jpg`;
     case 'sticker':
-      return `sticker_${short}.webp`;
+      return `sticker_${short}`;
     case 'video':
       return `video_${short}.mp4`;
     case 'video_note':
@@ -185,7 +203,7 @@ function getFilename(type, fileId) {
 function iconFor(type) {
   if (type === 'document') return FileText;
   if (type === 'voice' || type === 'audio') return Mic;
-  if (type === 'sticker') return ImageIcon;
+  if (type === 'sticker') return Smile;
   if (type === 'photo') return ImageIcon;
   return Film;
 }

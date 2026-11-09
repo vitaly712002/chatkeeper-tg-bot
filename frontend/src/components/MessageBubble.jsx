@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { getMediaUrl } from '../api';
 import { parseTelegramName } from '../utils';
+import StickerMedia from './StickerMedia';
 
 // Один «пузырь» сообщения. Ожидаемая форма:
 // { id, sender_name, recipient_name, is_outgoing, text, media_type, file_id, sent_at,
@@ -255,7 +256,17 @@ function MediaView({ type, fileId, onPreviewMedia }) {
     );
   }
 
-  if (type === 'photo' || type === 'sticker') {
+  if (type === 'sticker') {
+    return (
+      <StickerMedia
+        url={url}
+        fileId={fileId}
+        onPreviewMedia={onPreviewMedia}
+      />
+    );
+  }
+
+  if (type === 'photo') {
     return (
       <div
         className="relative my-1.5 inline-block cursor-pointer group"

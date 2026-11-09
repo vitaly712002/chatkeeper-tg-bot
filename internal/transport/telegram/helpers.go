@@ -83,7 +83,13 @@ func extractMedia(m *models.Message) (info mediaInfo, found bool) {
 	case m.Audio != nil:
 		return mediaInfo{kind: "audio", fileID: m.Audio.FileID, ext: "mp3"}, true
 	case m.Sticker != nil:
-		return mediaInfo{kind: "sticker", fileID: m.Sticker.FileID, ext: "webp"}, true
+		ext := "webp"
+		if m.Sticker.IsVideo {
+			ext = "webm"
+		} else if m.Sticker.IsAnimated {
+			ext = "tgs"
+		}
+		return mediaInfo{kind: "sticker", fileID: m.Sticker.FileID, ext: ext}, true
 	}
 	return mediaInfo{}, false
 }

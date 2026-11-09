@@ -61,8 +61,17 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 
 	// Пробрасываем тип содержимого и кешируем в браузере на час.
 	ct := resp.Header.Get("Content-Type")
+	fileExt := strings.ToLower(filepath.Ext(file.FilePath))
+	switch fileExt {
+	case ".tgs":
+		ct = "application/x-tgsticker"
+	case ".webm":
+		ct = "video/webm"
+	case ".webp":
+		ct = "image/webp"
+	}
 	if ct == "" {
-		ct = mime.TypeByExtension(filepath.Ext(file.FilePath))
+		ct = mime.TypeByExtension(fileExt)
 	}
 	if ct != "" {
 		w.Header().Set("Content-Type", ct)
@@ -89,6 +98,10 @@ func mediaFilename(fileID, filePath, contentType string) string {
 			ext = ".webp"
 		case "image/gif":
 			ext = ".gif"
+		case "video/webm":
+			ext = ".webm"
+		case "application/x-tgsticker":
+			ext = ".tgs"
 		case "video/mp4":
 			ext = ".mp4"
 		case "audio/ogg", "application/ogg":
