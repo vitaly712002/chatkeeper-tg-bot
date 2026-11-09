@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, BarChart2, LogOut, HardDrive, Trash2, Loader2, X, AlertTriangle, Radio, Bell, BellOff } from 'lucide-react';
-import { getStorage, cleanMedia } from '../api';
+import { MessageSquare, BarChart2, LogOut, HardDrive, Trash2, Loader2, X, AlertTriangle, Radio, Bell, BellOff, Database } from 'lucide-react';
+import { getStorage, cleanMedia, cleanHistory } from '../api';
 
-// Верхняя панель: логотип, вкладки (Переписки / Обзор), статус WebSocket, круговой индикатор дисковой памяти, кнопка очистки, кнопка паузы и выход.
+// Верхняя панель: логотип, вкладки (Переписки / Обзор), статус WebSocket, круговой индикатор дисковой памяти, кнопки очистки, кнопка паузы и выход.
 export default function Navbar({
   activeTab,
   setActiveTab,
@@ -10,6 +10,8 @@ export default function Navbar({
   onLogout,
   storage: propStorage,
   onStorageUpdate,
+  stats,
+  onHistoryCleared,
   wsStatus = 'connected',
   isPaused = false,
   onTogglePause,
@@ -19,6 +21,12 @@ export default function Navbar({
   const [cleaning, setCleaning] = useState(false);
   const [cleanResult, setCleanResult] = useState(null);
   const [cleanError, setCleanError] = useState('');
+
+  // Состояние очистки всей базы данных и истории
+  const [showCleanHistoryModal, setShowCleanHistoryModal] = useState(false);
+  const [cleaningHistory, setCleaningHistory] = useState(false);
+  const [cleanHistoryResult, setCleanHistoryResult] = useState(null);
+  const [cleanHistoryError, setCleanHistoryError] = useState('');
 
   useEffect(() => {
     if (propStorage) {
@@ -57,6 +65,28 @@ export default function Navbar({
       setCleanError(err.message || 'Ошибка очистки медиа');
     } finally {
       setCleaning(false);
+    }
+  };
+
+  const handleCleanHistory = async () => {
+    setCleaningHistory(true);
+    setCleanHistoryError('');
+    try {
+      const res = await cleanHistory();
+      setCleanHistoryResult(res);
+      if (res.storage) {
+        setStorage(res.storage);
+        if (onStorageUpdate) {
+          onStorageUpdate(res.storage);
+        }
+      }
+      if (onHistoryCleared) {
+        onHistoryCleared();
+      }
+    } catch (err) {
+      setCleanHistoryError(err.message || 'Ошибка очистки базы данных');
+    } finally {
+      setCleaningHistory(false);
     }
   };
 
@@ -221,16 +251,32 @@ export default function Navbar({
 
           {/* Кнопка быстрой очистки медиафайлов */}
           <button
+            type="button"
             onClick={() => {
               setShowCleanModal(true);
               setCleanResult(null);
               setCleanError('');
             }}
-            title="Очистить сохранённые медиафайлы"
+            title="Очистить сохранённые медиафайлы с диска"
             className="flex items-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800/60 border border-slate-700/60 hover:bg-rose-500/10 hover:border-rose-500/30 text-slate-300 hover:text-rose-300 text-xs font-medium transition-all group shrink-0"
           >
             <Trash2 className="w-3.5 h-3.5 text-slate-400 group-hover:text-rose-400 transition-colors" />
-            <span className="hidden lg:inline">Очистить медиа</span>
+            <span className="hidden xl:inline">Очистить медиа</span>
+          </button>
+
+          {/* Кнопка быстрой очистки всей базы данных и истории */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowCleanHistoryModal(true);
+              setCleanHistoryResult(null);
+              setCleanHistoryError('');
+            }}
+            title="Очистить всю базу данных и историю (не затрагивая Telegram)"
+            className="flex items-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800/60 border border-slate-700/60 hover:bg-rose-500/10 hover:border-rose-500/30 text-slate-300 hover:text-rose-300 text-xs font-medium transition-all group shrink-0"
+          >
+            <Database className="w-3.5 h-3.5 text-slate-400 group-hover:text-rose-400 transition-colors" />
+            <span className="hidden xl:inline">Очистить базу</span>
           </button>
 
           <div className="text-right hidden sm:block">
@@ -335,6 +381,126 @@ export default function Navbar({
                 >
                   {cleaning && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>{cleaning ? 'Очищаю…' : 'Удалить файлы'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно подтверждения полной очистки базы данных и истории */}
+      {showCleanHistoryModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm safe-bottom"
+          onClick={() => !cleaningHistory && setShowCleanHistoryModal(false)}
+        >
+          <div
+            className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 sm:py-4 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-rose-400">
+                <Database className="w-4 h-4" />
+                <h3 className="font-semibold text-sm sm:text-base text-white">Очистка базы данных</h3>
+              </div>
+              {!cleaningHistory && (
+                <button
+                  onClick={() => setShowCleanHistoryModal(false)}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+
+            <div className="p-4 sm:p-5 space-y-3 sm:space-y-4">
+              {cleanHistoryResult ? (
+                <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs sm:text-sm text-emerald-300 space-y-1.5">
+                  <div className="font-semibold text-emerald-200">
+                    База данных и вся история переписок успешно очищены!
+                  </div>
+                  <div>Удалено сообщений: <b>{cleanHistoryResult.deleted_messages}</b></div>
+                  <div>Удалено файлов с диска: <b>{cleanHistoryResult.deleted_media_files}</b></div>
+                  {cleanHistoryResult.freed_bytes > 0 && (
+                    <div>Освобождено памяти: <b>{formatBytes(cleanHistoryResult.freed_bytes)}</b></div>
+                  )}
+                  <div className="text-[11px] text-emerald-400/90 pt-1">
+                    Бот продолжает работать в Telegram в штатном режиме. Все последующие сообщения будут сохраняться с чистого листа.
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                    Вы собираетесь в один клик удалить <b>всю историю сообщений, правок и локальных файлов</b> из базы данных Chatkeeper.
+                  </p>
+
+                  {/* Блок безопасности Telegram */}
+                  <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl space-y-1 text-xs text-emerald-300">
+                    <div className="font-semibold text-emerald-200 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      Telegram и пользователи в безопасности
+                    </div>
+                    <ul className="list-disc list-inside text-[11px] text-emerald-300/90 space-y-0.5 pt-0.5">
+                      <li>Сообщения в самом Telegram НЕ удаляются.</li>
+                      <li>Собеседники ничего не заметят.</li>
+                      <li>Бот продолжит работать и принимать новые сообщения как ни в чём не бывало.</li>
+                    </ul>
+                  </div>
+
+                  {/* Текущая статистика */}
+                  <div className="p-3 bg-slate-800/60 border border-slate-700/60 rounded-xl space-y-1.5 text-xs text-slate-400">
+                    <div className="flex justify-between">
+                      <span>Сообщений в базе:</span>
+                      <span className="text-slate-200 font-semibold">{stats?.total_messages ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Диалогов (чатов):</span>
+                      <span className="text-slate-200 font-semibold">{stats?.total_chats ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>История правок:</span>
+                      <span className="text-slate-200 font-semibold">{stats?.edited_count ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Медиафайлов на сервере:</span>
+                      <span className="text-slate-200 font-semibold">{storage?.media_files ?? 0}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-2 text-xs text-rose-300">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                    <span>
+                      Это действие очистит архив переписок в веб-панели. Восстановить удалённую из базы историю будет невозможно.
+                    </span>
+                  </div>
+
+                  {cleanHistoryError && (
+                    <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300">
+                      {cleanHistoryError}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-4 sm:px-5 py-3 sm:py-4 border-t border-slate-800 bg-slate-900/60">
+              <button
+                type="button"
+                onClick={() => setShowCleanHistoryModal(false)}
+                disabled={cleaningHistory}
+                className="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+              >
+                {cleanHistoryResult ? 'Закрыть' : 'Отмена'}
+              </button>
+              {!cleanHistoryResult && (
+                <button
+                  type="button"
+                  onClick={handleCleanHistory}
+                  disabled={cleaningHistory}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-rose-600 hover:bg-rose-500 active:bg-rose-700 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+                >
+                  {cleaningHistory && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>{cleaningHistory ? 'Очищаю базу…' : 'Очистить всю базу'}</span>
                 </button>
               )}
             </div>

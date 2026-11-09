@@ -84,6 +84,24 @@ export async function cleanMedia() {
   return data;
 }
 
+// Очистка всей базы данных и истории сообщений (не затрагивая Telegram).
+export async function cleanHistory() {
+  const res = await fetch(`${API_BASE}/history/clean`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+  if (res.status === 401) {
+    logout();
+    window.location.reload();
+    throw new Error('Требуется авторизация');
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Ошибка очистки базы (${res.status})`);
+  }
+  return data;
+}
+
 // Временная остановка / возобновление оповещений бота в Telegram.
 export async function toggleBotPause(connectionId = null, paused = undefined) {
   const payload = {};

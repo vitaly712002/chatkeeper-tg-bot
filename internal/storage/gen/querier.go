@@ -11,6 +11,10 @@ import (
 )
 
 type Querier interface {
+	// Полностью удаляет все записи истории правок.
+	ClearAllEdits(ctx context.Context) (int64, error)
+	// Полностью удаляет все сохранённые сообщения из базы данных (каскадно удаляя и message_edits).
+	ClearAllMessages(ctx context.Context) (int64, error)
 	CountEdits(ctx context.Context) (int64, error)
 	CountMessagesByConnection(ctx context.Context, connectionID string) (int64, error)
 	// Удаляет сообщения старше заданной даты (TTL-очистка).
@@ -23,6 +27,7 @@ type Querier interface {
 	GetEditsByMessage(ctx context.Context, messageRefID int64) ([]GetEditsByMessageRow, error)
 	GetMessage(ctx context.Context, arg GetMessageParams) (TrackedMessage, error)
 	GetMessageByID(ctx context.Context, id int64) (TrackedMessage, error)
+	GetMessageByTelegramID(ctx context.Context, arg GetMessageByTelegramIDParams) (TrackedMessage, error)
 	GetStats(ctx context.Context) (GetStatsRow, error)
 	// Сохраняет предыдущую версию текста перед правкой.
 	InsertEdit(ctx context.Context, arg InsertEditParams) error

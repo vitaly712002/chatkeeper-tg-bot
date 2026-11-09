@@ -71,6 +71,56 @@ func (s *Server) handleCleanMedia(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// POST /api/history/clean — очищает всю историю сообщений и правок в базе данных, а также файлы на диске.
+// Записи о бизнес-подключениях (business_connections) НЕ затрагиваются, Telegram API не вызывается.
+func (s *Server) handleCleanHistory(w http.ResponseWriter, r *http.Request) {
+	var deletedMessages int64
+	var deletedMedia int
+	var freedBytes int64
+	var err error
+
+	if s.vault != nil {
+		deletedMessages, err = s.vault.ClearAllHistory(r.Context())
+		if err != nil {
+			s.log.Error("clear all history db", "err", err)
+			writeError(w, http.StatusInternalServerError, "Ошибка очистки базы данных")
+			return
+		}
+	}
+
+	if s.media != nil {
+		deletedMedia, freedBytes, err = s.media.CleanAll()
+		if err != nil {
+			s.log.Error("clean media files during history clean", "err", err)
+		}
+	}
+
+	storageInfo := service.GetStorageInfo(s.cfg.MediaDir)
+	if s.media != nil {
+		storageInfo.MediaFiles, storageInfo.MediaBytes = s.media.Stats()
+	}
+
+	s.log.Info("вся история и база данных успешно очищены",
+		"deleted_messages", deletedMessages,
+		"deleted_media", deletedMedia,
+		"freed_bytes", freedBytes,
+	)
+
+	// Оповещаем подключенные веб-клиенты о полной очистке истории
+	if s.hub != nil {
+		s.hub.Broadcast("history_cleared", map[string]any{
+			"deleted_messages": deletedMessages,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted_messages":    deletedMessages,
+		"deleted_media_files": deletedMedia,
+		"freed_bytes":         freedBytes,
+		"storage":             storageInfo,
+	})
+}
+
 // GET /api/users — список подключённых пользователей (аккаунтов Telegram Business).
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.vault.ListUsers(r.Context())

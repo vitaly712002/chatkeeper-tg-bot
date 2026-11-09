@@ -3,14 +3,18 @@
 -- обновляем изменяемые поля и возвращаем существующую запись.
 INSERT INTO tracked_messages (
     connection_id, chat_id, message_id, sender_id, sender_name, recipient_name,
-    is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, is_read
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, is_read,
+    reply_to_message_id, reply_to_sender_name, reply_to_text
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (connection_id, chat_id, message_id) DO UPDATE SET
     encrypted_text = EXCLUDED.encrypted_text,
     media_type = EXCLUDED.media_type,
     file_id = EXCLUDED.file_id,
     local_path = COALESCE(EXCLUDED.local_path, tracked_messages.local_path),
-    recipient_name = COALESCE(EXCLUDED.recipient_name, tracked_messages.recipient_name)
+    recipient_name = COALESCE(EXCLUDED.recipient_name, tracked_messages.recipient_name),
+    reply_to_message_id = COALESCE(EXCLUDED.reply_to_message_id, tracked_messages.reply_to_message_id),
+    reply_to_sender_name = COALESCE(EXCLUDED.reply_to_sender_name, tracked_messages.reply_to_sender_name),
+    reply_to_text = COALESCE(EXCLUDED.reply_to_text, tracked_messages.reply_to_text)
 RETURNING *;
 
 -- name: GetMessage :one
@@ -98,6 +102,7 @@ ORDER BY last_at DESC;
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
     tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
+    tm.reply_to_message_id, tm.reply_to_sender_name, tm.reply_to_text,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.chat_id = $1
@@ -109,6 +114,7 @@ LIMIT $2;
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
     tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
+    tm.reply_to_message_id, tm.reply_to_sender_name, tm.reply_to_text,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.connection_id = $1 AND tm.chat_id = $2
@@ -120,6 +126,7 @@ LIMIT $3;
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
     tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
+    tm.reply_to_message_id, tm.reply_to_sender_name, tm.reply_to_text,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.chat_id = $1 AND tm.id < $2
@@ -131,11 +138,17 @@ LIMIT $3;
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
     tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
+    tm.reply_to_message_id, tm.reply_to_sender_name, tm.reply_to_text,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.connection_id = $1 AND tm.chat_id = $2 AND tm.id < $3
 ORDER BY tm.id DESC
 LIMIT $4;
+
+-- name: GetMessageByTelegramID :one
+SELECT * FROM tracked_messages
+WHERE chat_id = $1 AND message_id = $2
+ORDER BY id DESC LIMIT 1;
 
 -- name: MarkChatAsRead :execrows
 -- Помечает все входящие непрочитанные сообщения чата как прочитанные.
@@ -169,3 +182,11 @@ SELECT COUNT(*) FROM message_edits;
 -- Сохраняет предыдущую версию текста перед правкой.
 INSERT INTO message_edits (message_ref_id, encrypted_old_text)
 VALUES ($1, $2);
+
+-- name: ClearAllMessages :execrows
+-- Полностью удаляет все сохранённые сообщения из базы данных (каскадно удаляя и message_edits).
+DELETE FROM tracked_messages;
+
+-- name: ClearAllEdits :execrows
+-- Полностью удаляет все записи истории правок.
+DELETE FROM message_edits;

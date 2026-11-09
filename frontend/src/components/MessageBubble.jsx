@@ -33,6 +33,7 @@ export default function MessageBubble({
   onReply,
   onForward,
   onDelete,
+  onScrollToMessage,
 }) {
   const [copied, setCopied] = useState(false);
   const deleted = !!msg.deleted_at;
@@ -88,6 +89,30 @@ export default function MessageBubble({
             )}
           </span>
         </div>
+
+        {/* Цитата / ответ на другое сообщение */}
+        {msg.reply_to_message_id && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onScrollToMessage?.(msg.reply_to_message_id);
+            }}
+            className={`mb-2 pl-2.5 pr-2 py-1 border-l-2 rounded-r-lg text-left cursor-pointer transition-all group select-none ${
+              outgoing
+                ? 'border-indigo-400 bg-indigo-950/40 hover:bg-indigo-950/70'
+                : 'border-emerald-400 bg-slate-900/60 hover:bg-slate-900/90'
+            }`}
+            title="Нажмите, чтобы перейти к сообщению"
+          >
+            <div className="text-[11px] font-semibold text-indigo-300 group-hover:text-indigo-200 truncate flex items-center gap-1">
+              <Reply className="w-3 h-3 text-indigo-400 shrink-0 inline rotate-180" />
+              <span className="truncate">{msg.reply_to_sender_name || 'В ответ на сообщение'}</span>
+            </div>
+            <div className="text-xs text-slate-300/85 group-hover:text-slate-100 truncate mt-0.5">
+              {msg.reply_to_text || 'Сообщение'}
+            </div>
+          </div>
+        )}
 
         {msg.media_type && msg.file_id && (
           <MediaView type={msg.media_type} fileId={msg.file_id} onPreviewMedia={onPreviewMedia} />
@@ -350,6 +375,50 @@ function VoiceMessagePlayer({ url, fileId }) {
     return result;
   }, [fileId]);
 
+  const handleLoadedMetadata = () => {
+    const el = audioRef.current;
+    if (!el) return;
+
+    if (Number.isFinite(el.duration) && el.duration > 0) {
+      setDuration(el.duration);
+    } else if (el.duration === Infinity) {
+      // Chromium баг: для ogg/opus и webm аудио duration часто возвращает Infinity
+      // Быстрый трюк: выставляем currentTime в далекую точку, чтобы браузер вычислил длительность
+      const onTimeUpdateTemp = () => {
+        if (Number.isFinite(el.duration) && el.duration > 0) {
+          setDuration(el.duration);
+        }
+        el.removeEventListener('timeupdate', onTimeUpdateTemp);
+      };
+      el.addEventListener('timeupdate', onTimeUpdateTemp);
+      el.currentTime = 1e101;
+      setTimeout(() => {
+        if (el) {
+          if (Number.isFinite(el.duration) && el.duration > 0) {
+            setDuration(el.duration);
+          }
+          el.currentTime = 0;
+        }
+      }, 50);
+    }
+  };
+
+  const handleDurationChange = () => {
+    const el = audioRef.current;
+    if (el && Number.isFinite(el.duration) && el.duration > 0) {
+      setDuration(el.duration);
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    setCurrentTime(el.currentTime || 0);
+    if (!duration && Number.isFinite(el.duration) && el.duration > 0) {
+      setDuration(el.duration);
+    }
+  };
+
   const togglePlay = () => {
     if (!audioRef.current) return;
     if (isPlaying) {
@@ -366,31 +435,40 @@ function VoiceMessagePlayer({ url, fileId }) {
     setPlaybackRate(nextRate);
   };
 
+  const validDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  const validCurrentTime = Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0;
+
   const handleSeek = (index) => {
-    if (!audioRef.current || !duration) return;
-    const progress = index / bars.length;
-    const targetTime = progress * duration;
+    if (!audioRef.current || !validDuration) return;
+    const progress = index / (bars.length - 1 || 1);
+    const targetTime = progress * validDuration;
     audioRef.current.currentTime = targetTime;
     setCurrentTime(targetTime);
   };
 
-  const progressPercent = duration > 0 ? currentTime / duration : 0;
+  const progressPercent = validDuration > 0 ? Math.min(1, Math.max(0, validCurrentTime / validDuration)) : 0;
   const activeBarsCount = Math.floor(progressPercent * bars.length);
 
   const formatAudioTime = (sec) => {
-    if (!sec || isNaN(sec)) return '0:00';
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
+    if (!sec || !Number.isFinite(sec) || Number.isNaN(sec) || sec < 0) return '0:00';
+    const totalSec = Math.floor(sec);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
+
+  const displayTime = isPlaying
+    ? formatAudioTime(validCurrentTime)
+    : formatAudioTime(validDuration || validCurrentTime);
 
   return (
     <div className="flex items-center gap-3 py-1.5 px-0.5 min-w-[210px] max-w-[280px] sm:max-w-xs select-none">
       <audio
         ref={audioRef}
         src={url}
-        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
-        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onDurationChange={handleDurationChange}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onEnded={() => {
@@ -438,7 +516,7 @@ function VoiceMessagePlayer({ url, fileId }) {
 
         {/* Время и переключатель скорости */}
         <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-          <span>{formatAudioTime(isPlaying ? currentTime : duration || currentTime)}</span>
+          <span>{displayTime}</span>
           <button
             type="button"
             onClick={toggleRate}

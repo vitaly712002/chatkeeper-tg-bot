@@ -41,18 +41,21 @@ type ChatSummary struct {
 
 // MessageView — сообщение для ленты (текст уже расшифрован).
 type MessageView struct {
-	ID            int64      `json:"id"`
-	MessageID     int64      `json:"message_id"`
-	SenderName    string     `json:"sender_name"`
-	RecipientName string     `json:"recipient_name"`
-	IsOutgoing    bool       `json:"is_outgoing"`
-	Text          string     `json:"text"`
-	MediaType     string     `json:"media_type"`
-	FileID        string     `json:"file_id"`
-	SentAt        time.Time  `json:"sent_at"`
-	DeletedAt     *time.Time `json:"deleted_at"`
-	Edited        bool       `json:"edited"`
-	IsRead        bool       `json:"is_read"`
+	ID                int64      `json:"id"`
+	MessageID         int64      `json:"message_id"`
+	SenderName        string     `json:"sender_name"`
+	RecipientName     string     `json:"recipient_name"`
+	IsOutgoing        bool       `json:"is_outgoing"`
+	Text              string     `json:"text"`
+	MediaType         string     `json:"media_type"`
+	FileID            string     `json:"file_id"`
+	SentAt            time.Time  `json:"sent_at"`
+	DeletedAt         *time.Time `json:"deleted_at"`
+	Edited            bool       `json:"edited"`
+	IsRead            bool       `json:"is_read"`
+	ReplyToMessageID  *int64     `json:"reply_to_message_id,omitempty"`
+	ReplyToSenderName string     `json:"reply_to_sender_name,omitempty"`
+	ReplyToText       string     `json:"reply_to_text,omitempty"`
 }
 
 // EditVersion — одна версия текста в истории правок.
@@ -286,17 +289,20 @@ func (v *Vault) toMessageView(r gen.ListRecentMessagesRow) MessageView {
 		}
 	}
 	mv := MessageView{
-		ID:            r.ID,
-		MessageID:     r.MessageID,
-		SenderName:    r.SenderName,
-		RecipientName: r.RecipientName,
-		IsOutgoing:    r.IsOutgoing,
-		Text:          text,
-		MediaType:     derefStr(r.MediaType),
-		FileID:        derefStr(r.FileID),
-		SentAt:        r.SentAt.Time,
-		Edited:        r.Edited,
-		IsRead:        r.IsRead,
+		ID:                r.ID,
+		MessageID:         r.MessageID,
+		SenderName:        r.SenderName,
+		RecipientName:     r.RecipientName,
+		IsOutgoing:        r.IsOutgoing,
+		Text:              text,
+		MediaType:         derefStr(r.MediaType),
+		FileID:            derefStr(r.FileID),
+		SentAt:            r.SentAt.Time,
+		Edited:            r.Edited,
+		IsRead:            r.IsRead,
+		ReplyToMessageID:  r.ReplyToMessageID,
+		ReplyToSenderName: derefStr(r.ReplyToSenderName),
+		ReplyToText:       derefStr(r.ReplyToText),
 	}
 	if r.DeletedAt.Valid {
 		t := r.DeletedAt.Time
@@ -311,17 +317,17 @@ func reverse(s []MessageView) {
 	}
 }
 
-// mediaLabel — человекочитаемая подпись для превью чата без текста.
-func mediaLabel(kind string) string {
+// MediaLabel — человекочитаемая подпись для медиафайлов.
+func MediaLabel(kind string) string {
 	switch kind {
 	case "photo":
 		return "📷 Фото"
 	case "video", "video_note":
 		return "🎞 Видео"
 	case "voice":
-		return "🎤 Голосовое"
+		return "🎤 Голосовое сообщение"
 	case "audio":
-		return "🎵 Аудио"
+		return "🎵 Аудиозапись"
 	case "document":
 		return "📄 Документ"
 	case "sticker":
@@ -331,6 +337,10 @@ func mediaLabel(kind string) string {
 	default:
 		return "📎 Вложение"
 	}
+}
+
+func mediaLabel(kind string) string {
+	return MediaLabel(kind)
 }
 
 func asString(v interface{}) string {

@@ -53,16 +53,41 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 	}
 
 	media, hasMedia := extractMedia(m)
+
+	var (
+		replyToID     *int64
+		replyToSender string
+		replyToText   string
+	)
+	if m.ReplyToMessage != nil {
+		id := int64(m.ReplyToMessage.ID)
+		replyToID = &id
+		replyToSender = senderName(m.ReplyToMessage.From)
+		if m.Quote != nil && m.Quote.Text != "" {
+			replyToText = m.Quote.Text
+		} else {
+			replyToText = messageText(m.ReplyToMessage)
+			if replyToText == "" {
+				if rmedia, rok := extractMedia(m.ReplyToMessage); rok {
+					replyToText = service.MediaLabel(rmedia.kind)
+				}
+			}
+		}
+	}
+
 	in := service.IncomingMessage{
-		ConnectionID:  m.BusinessConnectionID,
-		ChatID:        m.Chat.ID,
-		MessageID:     int64(m.ID),
-		SenderID:      senderID(m),
-		SenderName:    sender,
-		RecipientName: recipient,
-		IsOutgoing:    isOutgoing,
-		Text:          messageText(m),
-		SentAt:        time.Unix(int64(m.Date), 0),
+		ConnectionID:      m.BusinessConnectionID,
+		ChatID:            m.Chat.ID,
+		MessageID:         int64(m.ID),
+		SenderID:          senderID(m),
+		SenderName:        sender,
+		RecipientName:     recipient,
+		IsOutgoing:        isOutgoing,
+		Text:              messageText(m),
+		SentAt:            time.Unix(int64(m.Date), 0),
+		ReplyToMessageID:  replyToID,
+		ReplyToSenderName: replyToSender,
+		ReplyToText:       replyToText,
 	}
 	if hasMedia {
 		in.MediaType = media.kind

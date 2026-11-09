@@ -98,16 +98,37 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		owner = *conn.UserName
 	}
 
+	var (
+		replyToID     *int64
+		replyToSender string
+		replyToText   string
+	)
+	if req.ReplyToMessageID > 0 {
+		id := req.ReplyToMessageID
+		replyToID = &id
+		orig, _, oerr := s.vault.GetMessageByTelegramID(r.Context(), chatID, id)
+		if oerr == nil {
+			replyToSender = orig.SenderName
+			replyToText = orig.Text
+			if replyToText == "" && orig.MediaType != "" {
+				replyToText = service.MediaLabel(orig.MediaType)
+			}
+		}
+	}
+
 	in := service.IncomingMessage{
-		ConnectionID:  conn.ID,
-		ChatID:        chatID,
-		MessageID:     int64(msg.ID),
-		SenderID:      conn.UserID,
-		SenderName:    owner,
-		RecipientName: partner,
-		IsOutgoing:    true,
-		Text:          text,
-		SentAt:        time.Unix(int64(msg.Date), 0),
+		ConnectionID:      conn.ID,
+		ChatID:            chatID,
+		MessageID:         int64(msg.ID),
+		SenderID:          conn.UserID,
+		SenderName:        owner,
+		RecipientName:     partner,
+		IsOutgoing:        true,
+		Text:              text,
+		SentAt:            time.Unix(int64(msg.Date), 0),
+		ReplyToMessageID:  replyToID,
+		ReplyToSenderName: replyToSender,
+		ReplyToText:       replyToText,
 	}
 
 	mv, err := s.vault.SaveMessage(r.Context(), in)
@@ -249,6 +270,23 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 		owner = *conn.UserName
 	}
 
+	var (
+		replyToIDPtr  *int64
+		replyToSender string
+		replyToText   string
+	)
+	if replyToID > 0 {
+		replyToIDPtr = &replyToID
+		orig, _, oerr := s.vault.GetMessageByTelegramID(r.Context(), chatID, replyToID)
+		if oerr == nil {
+			replyToSender = orig.SenderName
+			replyToText = orig.Text
+			if replyToText == "" && orig.MediaType != "" {
+				replyToText = service.MediaLabel(orig.MediaType)
+			}
+		}
+	}
+
 	kind, fileID := extractMediaFromMessage(msg)
 	if kind == "" {
 		kind = mediaType
@@ -259,17 +297,20 @@ func (s *Server) handleSendMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	in := service.IncomingMessage{
-		ConnectionID:  conn.ID,
-		ChatID:        chatID,
-		MessageID:     int64(msg.ID),
-		SenderID:      conn.UserID,
-		SenderName:    owner,
-		RecipientName: partner,
-		IsOutgoing:    true,
-		Text:          text,
-		MediaType:     kind,
-		FileID:        fileID,
-		SentAt:        time.Unix(int64(msg.Date), 0),
+		ConnectionID:      conn.ID,
+		ChatID:            chatID,
+		MessageID:         int64(msg.ID),
+		SenderID:          conn.UserID,
+		SenderName:        owner,
+		RecipientName:     partner,
+		IsOutgoing:        true,
+		Text:              text,
+		MediaType:         kind,
+		FileID:            fileID,
+		SentAt:            time.Unix(int64(msg.Date), 0),
+		ReplyToMessageID:  replyToIDPtr,
+		ReplyToSenderName: replyToSender,
+		ReplyToText:       replyToText,
 	}
 
 	mv, err := s.vault.SaveMessage(r.Context(), in)

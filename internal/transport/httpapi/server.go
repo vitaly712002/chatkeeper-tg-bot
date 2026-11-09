@@ -57,6 +57,7 @@ func New(cfg config.Config, vault *service.Vault, b *bot.Bot, media *service.Med
 	// Медиа: токен может прийти в query (?t=...), т.к. <img> не шлёт заголовки.
 	mux.Handle("GET /api/media/{fileId}", s.auth(http.HandlerFunc(s.handleMedia)))
 	mux.Handle("POST /api/media/clean", s.auth(http.HandlerFunc(s.handleCleanMedia)))
+	mux.Handle("POST /api/history/clean", s.auth(http.HandlerFunc(s.handleCleanHistory)))
 	mux.Handle("POST /api/bot/pause", s.auth(http.HandlerFunc(s.handleTogglePause)))
 
 	// Отдача веб-панели (SPA), если задана папка со сборкой. Паттерн "/" ловит

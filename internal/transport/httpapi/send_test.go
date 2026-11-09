@@ -155,3 +155,42 @@ func TestMarkChatReadValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanHistoryValidation(t *testing.T) {
+	s := testServer()
+	token, err := s.issueToken("admin")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /api/history/clean", s.auth(http.HandlerFunc(s.handleCleanHistory)))
+
+	// 1. Без токена -> 401
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/history/clean", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("ожидался 401, получен %d", w.Code)
+		}
+	}
+
+	// 2. С токеном -> 200
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/history/clean", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("ожидался 200, получен %d", w.Code)
+		}
+		var resp map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("ошибка разбора JSON ответа: %v", err)
+		}
+		if _, ok := resp["deleted_messages"]; !ok {
+			t.Errorf("в ответе отсутствует поле deleted_messages")
+		}
+	}
+}

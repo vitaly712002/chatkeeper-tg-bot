@@ -28,21 +28,24 @@ type MessageEdit struct {
 }
 
 type TrackedMessage struct {
-	ID            int64
-	ConnectionID  string
-	ChatID        int64
-	MessageID     int64
-	SenderID      int64
-	SenderName    string
-	IsOutgoing    bool
-	EncryptedText []byte
-	MediaType     *string
-	FileID        *string
-	LocalPath     *string
-	SentAt        pgtype.Timestamptz
-	CreatedAt     pgtype.Timestamptz
-	DeletedAt     pgtype.Timestamptz
-	RecipientName *string
-	IsRead        bool
-	ReadAt        pgtype.Timestamptz
+	ID                int64
+	ConnectionID      string
+	ChatID            int64
+	MessageID         int64
+	SenderID          int64
+	SenderName        string
+	IsOutgoing        bool
+	EncryptedText     []byte
+	MediaType         *string
+	FileID            *string
+	LocalPath         *string
+	SentAt            pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	DeletedAt         pgtype.Timestamptz
+	RecipientName     *string
+	IsRead            bool
+	ReadAt            pgtype.Timestamptz
+	ReplyToMessageID  *int64
+	ReplyToSenderName *string
+	ReplyToText       *string
 }

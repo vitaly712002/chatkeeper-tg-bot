@@ -325,6 +325,18 @@ export default function ChatView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const scrollToMessage = useCallback((targetMessageId) => {
+    if (!targetMessageId) return;
+    const targetEl = document.getElementById(`msg-${targetMessageId}`);
+    if (targetEl) {
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      targetEl.classList.add('ring-2', 'ring-indigo-400', 'bg-indigo-500/20');
+      setTimeout(() => {
+        targetEl.classList.remove('ring-2', 'ring-indigo-400', 'bg-indigo-500/20');
+      }, 1800);
+    }
+  }, []);
+
   const refresh = () => {
     setMessages([]);
     setLoading(true);
@@ -740,16 +752,19 @@ export default function ChatView({
                   <div className="flex-1 h-px bg-indigo-500/30" />
                 </div>
               )}
-              <MessageBubble
-                msg={m}
-                onShowEdits={setEditTarget}
-                onPreviewMedia={setPreviewMedia}
-                fallbackOwner={effectiveOwner}
-                fallbackPartner={effectivePartner}
-                onReply={(msg) => setReplyTo(msg)}
-                onForward={(msg) => setForwardMsg(msg)}
-                onDelete={(msg) => setDeleteConfirmMsg(msg)}
-              />
+              <div id={`msg-${m.message_id}`} className="transition-all duration-300 rounded-2xl">
+                <MessageBubble
+                  msg={m}
+                  onShowEdits={setEditTarget}
+                  onPreviewMedia={setPreviewMedia}
+                  fallbackOwner={effectiveOwner}
+                  fallbackPartner={effectivePartner}
+                  onReply={(msg) => setReplyTo(msg)}
+                  onForward={(msg) => setForwardMsg(msg)}
+                  onDelete={(msg) => setDeleteConfirmMsg(msg)}
+                  onScrollToMessage={scrollToMessage}
+                />
+              </div>
             </React.Fragment>
           );
         })}

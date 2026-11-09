@@ -203,6 +203,13 @@ export default function App() {
           if (Array.isArray(data)) setUsers(data);
         })
         .catch(() => {});
+    } else if (type === 'history_cleared') {
+      setChats([]);
+      setSelectedChatId(null);
+      getStats().then(setStats).catch(() => {});
+      getUsers().then((data) => {
+        if (Array.isArray(data)) setUsers(data);
+      }).catch(() => {});
     }
   }, []); // Пустой массив зависимостей: соединение стабильно и не рвётся при смене чатов
 
@@ -297,6 +304,15 @@ export default function App() {
         onStorageUpdate={(newStorage) =>
           setStats((prev) => (prev ? { ...prev, storage: newStorage } : null))
         }
+        stats={stats}
+        onHistoryCleared={() => {
+          setChats([]);
+          setSelectedChatId(null);
+          getStats().then(setStats).catch(() => {});
+          getUsers().then((data) => {
+            if (Array.isArray(data)) setUsers(data);
+          }).catch(() => {});
+        }}
         wsStatus={wsStatus}
         isPaused={isBotPaused}
         onTogglePause={handleTogglePause}

@@ -32,18 +32,21 @@ func NewVault(store *storage.Store, cipher *crypto.Cipher) *Vault {
 // IncomingMessage — "сырьё" из Telegram, которое мы хотим сохранить.
 // Транспортный слой заполняет эту структуру и передаёт сюда.
 type IncomingMessage struct {
-	ConnectionID  string
-	ChatID        int64
-	MessageID     int64
-	SenderID      int64
-	SenderName    string
-	RecipientName string
-	IsOutgoing    bool
-	Text          string // открытый текст; шифруется внутри сервиса
-	MediaType     string // "" если медиа нет
-	FileID        string // "" если медиа нет
-	LocalPath     string // "" если нет сохранённого локального файла
-	SentAt        time.Time
+	ConnectionID      string
+	ChatID            int64
+	MessageID         int64
+	SenderID          int64
+	SenderName        string
+	RecipientName     string
+	IsOutgoing        bool
+	Text              string // открытый текст; шифруется внутри сервиса
+	MediaType         string // "" если медиа нет
+	FileID            string // "" если медиа нет
+	LocalPath         string // "" если нет сохранённого локального файла
+	SentAt            time.Time
+	ReplyToMessageID  *int64
+	ReplyToSenderName string
+	ReplyToText       string
 }
 
 // SavedMessage — расшифрованное сообщение, готовое для показа владельцу.
@@ -141,38 +144,60 @@ func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) (MessageVie
 	}
 
 	row, err := v.store.InsertMessage(ctx, gen.InsertMessageParams{
-		ConnectionID:  in.ConnectionID,
-		ChatID:        in.ChatID,
-		MessageID:     in.MessageID,
-		SenderID:      in.SenderID,
-		SenderName:    in.SenderName,
-		RecipientName: nullStr(in.RecipientName),
-		IsOutgoing:    in.IsOutgoing,
-		EncryptedText: encText,
-		MediaType:     nullStr(in.MediaType),
-		FileID:        nullStr(in.FileID),
-		LocalPath:     nullStr(in.LocalPath),
-		SentAt:        toTimestamptz(in.SentAt),
-		IsRead:        in.IsOutgoing,
+		ConnectionID:      in.ConnectionID,
+		ChatID:            in.ChatID,
+		MessageID:         in.MessageID,
+		SenderID:          in.SenderID,
+		SenderName:        in.SenderName,
+		RecipientName:     nullStr(in.RecipientName),
+		IsOutgoing:        in.IsOutgoing,
+		EncryptedText:     encText,
+		MediaType:         nullStr(in.MediaType),
+		FileID:            nullStr(in.FileID),
+		LocalPath:         nullStr(in.LocalPath),
+		SentAt:            toTimestamptz(in.SentAt),
+		IsRead:            in.IsOutgoing,
+		ReplyToMessageID:  in.ReplyToMessageID,
+		ReplyToSenderName: nullStr(in.ReplyToSenderName),
+		ReplyToText:       nullStr(in.ReplyToText),
 	})
 	if err != nil {
 		return MessageView{}, err
 	}
 
 	return MessageView{
-		ID:            row.ID,
-		MessageID:     row.MessageID,
-		SenderName:    row.SenderName,
-		RecipientName: derefStr(row.RecipientName),
-		IsOutgoing:    row.IsOutgoing,
-		Text:          in.Text,
-		MediaType:     derefStr(row.MediaType),
-		FileID:        derefStr(row.FileID),
-		SentAt:        row.SentAt.Time,
-		DeletedAt:     nil,
-		Edited:        false,
-		IsRead:        row.IsRead,
+		ID:                row.ID,
+		MessageID:         row.MessageID,
+		SenderName:        row.SenderName,
+		RecipientName:     derefStr(row.RecipientName),
+		IsOutgoing:        row.IsOutgoing,
+		Text:              in.Text,
+		MediaType:         derefStr(row.MediaType),
+		FileID:            derefStr(row.FileID),
+		SentAt:            row.SentAt.Time,
+		DeletedAt:         nil,
+		Edited:            false,
+		IsRead:            row.IsRead,
+		ReplyToMessageID:  row.ReplyToMessageID,
+		ReplyToSenderName: derefStr(row.ReplyToSenderName),
+		ReplyToText:       derefStr(row.ReplyToText),
 	}, nil
+}
+
+// GetMessageByTelegramID достаёт сообщение по chatID и messageID из Telegram.
+func (v *Vault) GetMessageByTelegramID(ctx context.Context, chatID, messageID int64) (SavedMessage, gen.TrackedMessage, error) {
+	row, err := v.store.GetMessageByTelegramID(ctx, gen.GetMessageByTelegramIDParams{
+		ChatID:    chatID,
+		MessageID: messageID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SavedMessage{}, gen.TrackedMessage{}, ErrNotFound
+	}
+	if err != nil {
+		return SavedMessage{}, gen.TrackedMessage{}, err
+	}
+	saved, err := v.decrypt(row)
+	return saved, row, err
 }
 
 // MarkChatAsRead помечает все непрочитанные входящие сообщения в чате как прочитанные.
@@ -285,6 +310,14 @@ func (v *Vault) GetLocalPathByFileID(ctx context.Context, fileID string) (string
 // ClearAllLocalMedia сбрасывает все ссылки на сохранённые локальные файлы в БД.
 func (v *Vault) ClearAllLocalMedia(ctx context.Context) error {
 	return v.store.ClearAllMessageLocalPaths(ctx)
+}
+
+// ClearAllHistory полностью удаляет все сохранённые сообщения и историю правок из базы данных.
+// Бизнес-подключения (business_connections) остаются неизменными, поэтому бот
+// продолжает работать и сохранять новые сообщения в штатном режиме без какого-либо влияния на Telegram.
+func (v *Vault) ClearAllHistory(ctx context.Context) (int64, error) {
+	_, _ = v.store.ClearAllEdits(ctx)
+	return v.store.ClearAllMessages(ctx)
 }
 
 // --- вспомогательные функции ---
