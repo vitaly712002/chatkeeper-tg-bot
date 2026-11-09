@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, BarChart2, LogOut, HardDrive, Trash2, Loader2, X, AlertTriangle, Radio } from 'lucide-react';
+import { MessageSquare, BarChart2, LogOut, HardDrive, Trash2, Loader2, X, AlertTriangle, Radio, Bell, BellOff } from 'lucide-react';
 import { getStorage, cleanMedia } from '../api';
 
-// Верхняя панель: логотип, вкладки (Переписки / Обзор), статус WebSocket, круговой индикатор дисковой памяти, кнопка очистки и выход.
+// Верхняя панель: логотип, вкладки (Переписки / Обзор), статус WebSocket, круговой индикатор дисковой памяти, кнопка очистки, кнопка паузы и выход.
 export default function Navbar({
   activeTab,
   setActiveTab,
@@ -11,6 +11,8 @@ export default function Navbar({
   storage: propStorage,
   onStorageUpdate,
   wsStatus = 'connected',
+  isPaused = false,
+  onTogglePause,
 }) {
   const [storage, setStorage] = useState(propStorage || null);
   const [showCleanModal, setShowCleanModal] = useState(false);
@@ -182,6 +184,40 @@ export default function Navbar({
               </div>
             </div>
           )}
+
+          {/* Кнопка паузы бота (включение/отключение оповещений в Telegram) */}
+          <button
+            type="button"
+            onClick={onTogglePause}
+            title={
+              isPaused
+                ? 'Бот на паузе: оповещения в Telegram отключены. Нажмите, чтобы включить.'
+                : 'Бот активен: оповещения в Telegram включены. Нажмите для паузы.'
+            }
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl border text-xs font-medium transition-all group shrink-0 ${
+              isPaused
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:border-amber-500/60 shadow-sm shadow-amber-500/10'
+                : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-slate-800/90 hover:border-emerald-500/40 hover:text-emerald-300'
+            }`}
+          >
+            {isPaused ? (
+              <>
+                <div className="relative">
+                  <BellOff className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                </div>
+                <span className="hidden sm:inline font-semibold">На паузе</span>
+              </>
+            ) : (
+              <>
+                <div className="relative">
+                  <Bell className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                </div>
+                <span className="hidden sm:inline">Оповещения вкл</span>
+              </>
+            )}
+          </button>
 
           {/* Кнопка быстрой очистки медиафайлов */}
           <button

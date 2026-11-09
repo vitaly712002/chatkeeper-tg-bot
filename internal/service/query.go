@@ -19,8 +19,10 @@ type UserSummary struct {
 	UserID        int64     `json:"user_id"`
 	UserName      string    `json:"user_name"`
 	IsEnabled     bool      `json:"is_enabled"`
+	IsPaused      bool      `json:"is_paused"`
 	ChatsCount    int64     `json:"chats_count"`
 	MessagesCount int64     `json:"messages_count"`
+	UnreadCount   int64     `json:"unread_count"`
 	LastAt        time.Time `json:"last_at"`
 }
 
@@ -34,6 +36,7 @@ type ChatSummary struct {
 	LastAt       time.Time `json:"last_at"`
 	Count        int64     `json:"count"`
 	DeletedCount int64     `json:"deleted_count"`
+	UnreadCount  int64     `json:"unread_count"`
 }
 
 // MessageView — сообщение для ленты (текст уже расшифрован).
@@ -49,6 +52,7 @@ type MessageView struct {
 	SentAt        time.Time  `json:"sent_at"`
 	DeletedAt     *time.Time `json:"deleted_at"`
 	Edited        bool       `json:"edited"`
+	IsRead        bool       `json:"is_read"`
 }
 
 // EditVersion — одна версия текста в истории правок.
@@ -77,10 +81,12 @@ func (v *Vault) ListUsers(ctx context.Context) ([]UserSummary, error) {
 		out = append(out, UserSummary{
 			ConnectionID:  r.ConnectionID,
 			UserID:        r.UserID,
-			UserName:      r.UserName,
+			UserName:      asString(r.UserName),
 			IsEnabled:     r.IsEnabled,
+			IsPaused:      r.IsPaused,
 			ChatsCount:    r.ChatsCount,
 			MessagesCount: r.MessagesCount,
+			UnreadCount:   r.UnreadCount,
 			LastAt:        asTime(r.LastAt),
 		})
 	}
@@ -95,12 +101,19 @@ func (v *Vault) ListChats(ctx context.Context, connectionID string) ([]ChatSumma
 		err  error
 	)
 	if connectionID != "" {
-		rows, err = v.store.ListChatsByConnection(ctx, connectionID)
+		byConn, cerr := v.store.ListChatsByConnection(ctx, connectionID)
+		if cerr != nil {
+			return nil, cerr
+		}
+		rows = make([]gen.ListChatsRow, 0, len(byConn))
+		for _, r := range byConn {
+			rows = append(rows, gen.ListChatsRow(r))
+		}
 	} else {
 		rows, err = v.store.ListChats(ctx)
-	}
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 	out := make([]ChatSummary, 0, len(rows))
 	for _, r := range rows {
@@ -131,6 +144,7 @@ func (v *Vault) ListChats(ctx context.Context, connectionID string) ([]ChatSumma
 			LastAt:       asTime(r.LastAt),
 			Count:        r.MsgCount,
 			DeletedCount: r.DeletedCount,
+			UnreadCount:  r.UnreadCount,
 		})
 	}
 	return out, nil
@@ -145,25 +159,25 @@ func (v *Vault) ListMessages(ctx context.Context, connectionID string, chatID in
 	)
 	if connectionID != "" {
 		if before > 0 {
-			var rows []gen.ListMessagesBeforeRow
+			var rows []gen.ListMessagesBeforeByConnRow
 			rows, err = v.store.ListMessagesBeforeByConn(ctx, gen.ListMessagesBeforeByConnParams{
 				ConnectionID: connectionID, ChatID: chatID, ID: before, Limit: limit,
 			})
 			if err == nil {
 				views = make([]MessageView, 0, len(rows))
 				for _, r := range rows {
-					views = append(views, v.toMessageView(messageRow(r)))
+					views = append(views, v.toMessageView(gen.ListRecentMessagesRow(r)))
 				}
 			}
 		} else {
-			var rows []gen.ListRecentMessagesRow
+			var rows []gen.ListRecentMessagesByConnRow
 			rows, err = v.store.ListRecentMessagesByConn(ctx, gen.ListRecentMessagesByConnParams{
 				ConnectionID: connectionID, ChatID: chatID, Limit: limit,
 			})
 			if err == nil {
 				views = make([]MessageView, 0, len(rows))
 				for _, r := range rows {
-					views = append(views, v.toMessageView(r))
+					views = append(views, v.toMessageView(gen.ListRecentMessagesRow(r)))
 				}
 			}
 		}
@@ -176,7 +190,7 @@ func (v *Vault) ListMessages(ctx context.Context, connectionID string, chatID in
 			if err == nil {
 				views = make([]MessageView, 0, len(rows))
 				for _, r := range rows {
-					views = append(views, v.toMessageView(messageRow(r)))
+					views = append(views, v.toMessageView(gen.ListRecentMessagesRow(r)))
 				}
 			}
 		} else {
@@ -282,29 +296,13 @@ func (v *Vault) toMessageView(r gen.ListRecentMessagesRow) MessageView {
 		FileID:        derefStr(r.FileID),
 		SentAt:        r.SentAt.Time,
 		Edited:        r.Edited,
+		IsRead:        r.IsRead,
 	}
 	if r.DeletedAt.Valid {
 		t := r.DeletedAt.Time
 		mv.DeletedAt = &t
 	}
 	return mv
-}
-
-// messageRow приводит строку "Before"-запроса к общему типу (поля идентичны).
-func messageRow(r gen.ListMessagesBeforeRow) gen.ListRecentMessagesRow {
-	return gen.ListRecentMessagesRow{
-		ID:            r.ID,
-		MessageID:     r.MessageID,
-		SenderName:    r.SenderName,
-		RecipientName: r.RecipientName,
-		IsOutgoing:    r.IsOutgoing,
-		EncryptedText: r.EncryptedText,
-		MediaType:     r.MediaType,
-		FileID:        r.FileID,
-		SentAt:        r.SentAt,
-		DeletedAt:     r.DeletedAt,
-		Edited:        r.Edited,
-	}
 }
 
 func reverse(s []MessageView) {

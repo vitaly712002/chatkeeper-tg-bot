@@ -33,10 +33,18 @@ SELECT
         CONCAT('User ', bc.user_id)
     ) AS user_name,
     bc.is_enabled,
+    bc.is_paused,
     COUNT(DISTINCT tm.chat_id) AS chats_count,
     COUNT(tm.id) AS messages_count,
+    COUNT(tm.id) FILTER (WHERE tm.is_read = FALSE AND tm.is_outgoing = FALSE) AS unread_count,
     MAX(tm.sent_at) AS last_at
 FROM business_connections bc
 LEFT JOIN tracked_messages tm ON tm.connection_id = bc.id
-GROUP BY bc.id, bc.user_id, bc.user_name, bc.is_enabled
+GROUP BY bc.id, bc.user_id, bc.user_name, bc.is_enabled, bc.is_paused
 ORDER BY last_at DESC NULLS LAST;
+
+-- name: SetConnectionPaused :exec
+UPDATE business_connections SET is_paused = $2, updated_at = NOW() WHERE id = $1;
+
+-- name: SetAllConnectionsPaused :exec
+UPDATE business_connections SET is_paused = $1, updated_at = NOW();

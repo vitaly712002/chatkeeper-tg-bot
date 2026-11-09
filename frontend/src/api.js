@@ -84,6 +84,29 @@ export async function cleanMedia() {
   return data;
 }
 
+// Временная остановка / возобновление оповещений бота в Telegram.
+export async function toggleBotPause(connectionId = null, paused = undefined) {
+  const payload = {};
+  if (connectionId) payload.connection_id = connectionId;
+  if (typeof paused === 'boolean') payload.paused = paused;
+
+  const res = await fetch(`${API_BASE}/bot/pause`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 401) {
+    logout();
+    window.location.reload();
+    throw new Error('Требуется авторизация');
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Ошибка изменения статуса бота');
+  }
+  return data;
+}
+
 // Список пользователей (подключённых аккаунтов Telegram Business).
 export function getUsers() {
   return apiGet('/users');
@@ -110,6 +133,33 @@ export function getChatMessages(chatId, { connectionId = null, limit = 50, befor
 // История правок одного сообщения («было → стало»).
 export function getMessageEdits(messageId) {
   return apiGet(`/messages/${messageId}/edits`);
+}
+
+// Помечает все входящие сообщения диалога как прочитанные.
+export async function markChatRead(chatId, connectionId = null) {
+  const token = localStorage.getItem('token');
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let url = `${API_BASE}/chats/${encodeURIComponent(chatId)}/read`;
+  if (connectionId) {
+    url += `?connection_id=${encodeURIComponent(connectionId)}`;
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+  });
+  if (res.status === 401) {
+    logout();
+    window.location.reload();
+    throw new Error('Требуется авторизация');
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Ошибка пометки прочитанным (${res.status})`);
+  }
+  return data;
 }
 
 // Отправка текстового сообщения от лица бота через Telegram Business

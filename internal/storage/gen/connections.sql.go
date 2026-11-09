@@ -10,7 +10,7 @@ import (
 )
 
 const getConnection = `-- name: GetConnection :one
-SELECT id, user_id, user_chat_id, user_name, can_reply, is_enabled, created_at, updated_at FROM business_connections WHERE id = $1
+SELECT id, user_id, user_chat_id, can_reply, is_enabled, created_at, updated_at, user_name, is_paused FROM business_connections WHERE id = $1
 `
 
 func (q *Queries) GetConnection(ctx context.Context, id string) (BusinessConnection, error) {
@@ -20,17 +20,18 @@ func (q *Queries) GetConnection(ctx context.Context, id string) (BusinessConnect
 		&i.ID,
 		&i.UserID,
 		&i.UserChatID,
-		&i.UserName,
 		&i.CanReply,
 		&i.IsEnabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserName,
+		&i.IsPaused,
 	)
 	return i, err
 }
 
 const getConnectionByUser = `-- name: GetConnectionByUser :one
-SELECT id, user_id, user_chat_id, user_name, can_reply, is_enabled, created_at, updated_at FROM business_connections WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1
+SELECT id, user_id, user_chat_id, can_reply, is_enabled, created_at, updated_at, user_name, is_paused FROM business_connections WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1
 `
 
 // Последнее подключение данного владельца (для команд в личке бота).
@@ -41,11 +42,12 @@ func (q *Queries) GetConnectionByUser(ctx context.Context, userID int64) (Busine
 		&i.ID,
 		&i.UserID,
 		&i.UserChatID,
-		&i.UserName,
 		&i.CanReply,
 		&i.IsEnabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserName,
+		&i.IsPaused,
 	)
 	return i, err
 }
@@ -60,22 +62,26 @@ SELECT
         CONCAT('User ', bc.user_id)
     ) AS user_name,
     bc.is_enabled,
+    bc.is_paused,
     COUNT(DISTINCT tm.chat_id) AS chats_count,
     COUNT(tm.id) AS messages_count,
+    COUNT(tm.id) FILTER (WHERE tm.is_read = FALSE AND tm.is_outgoing = FALSE) AS unread_count,
     MAX(tm.sent_at) AS last_at
 FROM business_connections bc
 LEFT JOIN tracked_messages tm ON tm.connection_id = bc.id
-GROUP BY bc.id, bc.user_id, bc.user_name, bc.is_enabled
+GROUP BY bc.id, bc.user_id, bc.user_name, bc.is_enabled, bc.is_paused
 ORDER BY last_at DESC NULLS LAST
 `
 
 type ListUsersRow struct {
 	ConnectionID  string
 	UserID        int64
-	UserName      string
+	UserName      interface{}
 	IsEnabled     bool
+	IsPaused      bool
 	ChatsCount    int64
 	MessagesCount int64
+	UnreadCount   int64
 	LastAt        interface{}
 }
 
@@ -94,8 +100,10 @@ func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
 			&i.UserID,
 			&i.UserName,
 			&i.IsEnabled,
+			&i.IsPaused,
 			&i.ChatsCount,
 			&i.MessagesCount,
+			&i.UnreadCount,
 			&i.LastAt,
 		); err != nil {
 			return nil, err
@@ -106,6 +114,15 @@ func (q *Queries) ListUsers(ctx context.Context) ([]ListUsersRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setAllConnectionsPaused = `-- name: SetAllConnectionsPaused :exec
+UPDATE business_connections SET is_paused = $1, updated_at = NOW()
+`
+
+func (q *Queries) SetAllConnectionsPaused(ctx context.Context, isPaused bool) error {
+	_, err := q.db.Exec(ctx, setAllConnectionsPaused, isPaused)
+	return err
 }
 
 const setConnectionEnabled = `-- name: SetConnectionEnabled :exec
@@ -122,6 +139,20 @@ func (q *Queries) SetConnectionEnabled(ctx context.Context, arg SetConnectionEna
 	return err
 }
 
+const setConnectionPaused = `-- name: SetConnectionPaused :exec
+UPDATE business_connections SET is_paused = $2, updated_at = NOW() WHERE id = $1
+`
+
+type SetConnectionPausedParams struct {
+	ID       string
+	IsPaused bool
+}
+
+func (q *Queries) SetConnectionPaused(ctx context.Context, arg SetConnectionPausedParams) error {
+	_, err := q.db.Exec(ctx, setConnectionPaused, arg.ID, arg.IsPaused)
+	return err
+}
+
 const upsertConnection = `-- name: UpsertConnection :one
 INSERT INTO business_connections (id, user_id, user_chat_id, user_name, can_reply, is_enabled, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -132,7 +163,7 @@ ON CONFLICT (id) DO UPDATE SET
     can_reply = EXCLUDED.can_reply,
     is_enabled = EXCLUDED.is_enabled,
     updated_at = NOW()
-RETURNING id, user_id, user_chat_id, user_name, can_reply, is_enabled, created_at, updated_at
+RETURNING id, user_id, user_chat_id, can_reply, is_enabled, created_at, updated_at, user_name, is_paused
 `
 
 type UpsertConnectionParams struct {
@@ -160,11 +191,12 @@ func (q *Queries) UpsertConnection(ctx context.Context, arg UpsertConnectionPara
 		&i.ID,
 		&i.UserID,
 		&i.UserChatID,
-		&i.UserName,
 		&i.CanReply,
 		&i.IsEnabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserName,
+		&i.IsPaused,
 	)
 	return i, err
 }

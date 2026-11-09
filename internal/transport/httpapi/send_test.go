@@ -123,3 +123,35 @@ func TestForwardMessageValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkChatReadValidation(t *testing.T) {
+	s := testServer()
+	token, err := s.issueToken("admin")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /api/chats/{chatId}/read", s.auth(http.HandlerFunc(s.handleMarkChatRead)))
+
+	// 1. Без токена -> 401
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/chats/123/read", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("ожидался 401, получен %d", w.Code)
+		}
+	}
+
+	// 2. Некорректный chatId -> 400
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/chats/notanumber/read", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("ожидался 400, получен %d", w.Code)
+		}
+	}
+}

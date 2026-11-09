@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -116,6 +117,46 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, msgs)
 }
 
+// POST /api/chats/{chatId}/read — помечает входящие сообщения в диалоге как прочитанные.
+func (s *Server) handleMarkChatRead(w http.ResponseWriter, r *http.Request) {
+	chatID, err := strconv.ParseInt(r.PathValue("chatId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Некорректный chatId")
+		return
+	}
+	connID := r.URL.Query().Get("connection_id")
+
+	if connID == "" && r.Body != nil && r.ContentLength > 0 {
+		var req struct {
+			ConnectionID string `json:"connection_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.ConnectionID != "" {
+			connID = req.ConnectionID
+		}
+	}
+
+	affected, err := s.vault.MarkChatAsRead(r.Context(), connID, chatID)
+	if err != nil {
+		s.log.Error("mark chat read error", "chat_id", chatID, "err", err)
+		writeError(w, http.StatusInternalServerError, "Ошибка обновления статуса прочитанности")
+		return
+	}
+
+	if s.hub != nil {
+		s.hub.Broadcast("chat_read", map[string]any{
+			"chat_id":       chatID,
+			"connection_id": connID,
+			"read_count":    affected,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"chat_id":    chatID,
+		"read_count": affected,
+	})
+}
+
 // GET /api/messages/{id}/edits — история правок сообщения.
 func (s *Server) handleEdits(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -145,4 +186,80 @@ func parseIntDefault(s string, def int) int {
 		return def
 	}
 	return n
+}
+
+type togglePauseRequest struct {
+	ConnectionID string `json:"connection_id"`
+	Paused       *bool  `json:"paused"`
+}
+
+// POST /api/bot/pause — временно останавливает/возобновляет оповещения бота в Telegram.
+func (s *Server) handleTogglePause(w http.ResponseWriter, r *http.Request) {
+	var req togglePauseRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	if req.ConnectionID != "" {
+		conn, err := s.vault.GetConnection(r.Context(), req.ConnectionID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "Подключение не найдено")
+			return
+		}
+		newPaused := !conn.IsPaused
+		if req.Paused != nil {
+			newPaused = *req.Paused
+		}
+		if err := s.vault.SetConnectionPaused(r.Context(), req.ConnectionID, newPaused); err != nil {
+			s.log.Error("set connection paused", "err", err)
+			writeError(w, http.StatusInternalServerError, "Ошибка обновления статуса паузы")
+			return
+		}
+		if s.hub != nil {
+			s.hub.Broadcast("connection_updated", map[string]any{
+				"connection_id": conn.ID,
+				"user_id":       conn.UserID,
+				"is_enabled":    conn.IsEnabled,
+				"is_paused":     newPaused,
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"connection_id": conn.ID,
+			"is_paused":     newPaused,
+		})
+		return
+	}
+
+	// Если connection_id не указан — переключаем все подключения (или текущее)
+	users, err := s.vault.ListUsers(r.Context())
+	if err != nil || len(users) == 0 {
+		writeError(w, http.StatusNotFound, "Нет подключённых аккаунтов")
+		return
+	}
+
+	newPaused := !users[0].IsPaused
+	if req.Paused != nil {
+		newPaused = *req.Paused
+	}
+
+	if err := s.vault.SetAllConnectionsPaused(r.Context(), newPaused); err != nil {
+		s.log.Error("set all connections paused", "err", err)
+		writeError(w, http.StatusInternalServerError, "Ошибка обновления статуса паузы")
+		return
+	}
+
+	if s.hub != nil {
+		for _, u := range users {
+			s.hub.Broadcast("connection_updated", map[string]any{
+				"connection_id": u.ConnectionID,
+				"user_id":       u.UserID,
+				"is_enabled":    u.IsEnabled,
+				"is_paused":     newPaused,
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"is_paused": newPaused,
+	})
 }

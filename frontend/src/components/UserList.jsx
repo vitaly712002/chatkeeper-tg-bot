@@ -51,10 +51,16 @@ export default function UserList({
               >
                 <div className="relative w-9 h-9 shrink-0 rounded-xl bg-slate-800 flex items-center justify-center text-indigo-400 font-semibold text-sm">
                   {userInfo.name ? userInfo.name.charAt(0).toUpperCase() : <User className="w-4 h-4" />}
-                  {u.is_enabled && (
+                  {u.is_enabled && !u.is_paused && (
                     <span
                       className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-slate-900 rounded-full"
                       title="Бот активен"
+                    />
+                  )}
+                  {u.is_paused && (
+                    <span
+                      className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-400 border-2 border-slate-900 rounded-full"
+                      title="Бот на паузе (оповещения выключены)"
                     />
                   )}
                 </div>
@@ -69,11 +75,23 @@ export default function UserList({
                         </span>
                       )}
                     </span>
+                    {u.is_paused && (
+                      <span className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded font-medium shrink-0">
+                        пауза
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                    <span>{u.chats_count || 0} чат.</span>
-                    <span>•</span>
-                    <span>{u.messages_count || 0} сообщ.</span>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 justify-between">
+                    <div className="flex items-center gap-2 truncate">
+                      <span>{u.chats_count || 0} чат.</span>
+                      <span>•</span>
+                      <span>{u.messages_count || 0} сообщ.</span>
+                    </div>
+                    {Number(u.unread_count) > 0 && (
+                      <span className="min-w-[18px] h-4 px-1 flex items-center justify-center text-[10px] font-bold text-white bg-indigo-600 rounded-full shrink-0">
+                        {u.unread_count > 99 ? '99+' : u.unread_count}
+                      </span>
+                    )}
                   </div>
                 </div>
               </button>

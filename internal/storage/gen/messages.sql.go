@@ -80,7 +80,7 @@ func (q *Queries) GetEditsByMessage(ctx context.Context, messageRefID int64) ([]
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, connection_id, chat_id, message_id, sender_id, sender_name, recipient_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at FROM tracked_messages
+SELECT id, connection_id, chat_id, message_id, sender_id, sender_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at, recipient_name, is_read, read_at FROM tracked_messages
 WHERE connection_id = $1 AND chat_id = $2 AND message_id = $3
 `
 
@@ -100,7 +100,6 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (Tracked
 		&i.MessageID,
 		&i.SenderID,
 		&i.SenderName,
-		&i.RecipientName,
 		&i.IsOutgoing,
 		&i.EncryptedText,
 		&i.MediaType,
@@ -109,12 +108,15 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (Tracked
 		&i.SentAt,
 		&i.CreatedAt,
 		&i.DeletedAt,
+		&i.RecipientName,
+		&i.IsRead,
+		&i.ReadAt,
 	)
 	return i, err
 }
 
 const getMessageByID = `-- name: GetMessageByID :one
-SELECT id, connection_id, chat_id, message_id, sender_id, sender_name, recipient_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at FROM tracked_messages WHERE id = $1
+SELECT id, connection_id, chat_id, message_id, sender_id, sender_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at, recipient_name, is_read, read_at FROM tracked_messages WHERE id = $1
 `
 
 func (q *Queries) GetMessageByID(ctx context.Context, id int64) (TrackedMessage, error) {
@@ -127,7 +129,6 @@ func (q *Queries) GetMessageByID(ctx context.Context, id int64) (TrackedMessage,
 		&i.MessageID,
 		&i.SenderID,
 		&i.SenderName,
-		&i.RecipientName,
 		&i.IsOutgoing,
 		&i.EncryptedText,
 		&i.MediaType,
@@ -136,6 +137,9 @@ func (q *Queries) GetMessageByID(ctx context.Context, id int64) (TrackedMessage,
 		&i.SentAt,
 		&i.CreatedAt,
 		&i.DeletedAt,
+		&i.RecipientName,
+		&i.IsRead,
+		&i.ReadAt,
 	)
 	return i, err
 }
@@ -180,15 +184,15 @@ func (q *Queries) InsertEdit(ctx context.Context, arg InsertEditParams) error {
 const insertMessage = `-- name: InsertMessage :one
 INSERT INTO tracked_messages (
     connection_id, chat_id, message_id, sender_id, sender_name, recipient_name,
-    is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, is_read
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (connection_id, chat_id, message_id) DO UPDATE SET
     encrypted_text = EXCLUDED.encrypted_text,
     media_type = EXCLUDED.media_type,
     file_id = EXCLUDED.file_id,
     local_path = COALESCE(EXCLUDED.local_path, tracked_messages.local_path),
     recipient_name = COALESCE(EXCLUDED.recipient_name, tracked_messages.recipient_name)
-RETURNING id, connection_id, chat_id, message_id, sender_id, sender_name, recipient_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at
+RETURNING id, connection_id, chat_id, message_id, sender_id, sender_name, is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, created_at, deleted_at, recipient_name, is_read, read_at
 `
 
 type InsertMessageParams struct {
@@ -204,6 +208,7 @@ type InsertMessageParams struct {
 	FileID        *string
 	LocalPath     *string
 	SentAt        pgtype.Timestamptz
+	IsRead        bool
 }
 
 // Сохраняет новое сообщение. Если вдруг такое уже есть (повтор апдейта),
@@ -222,6 +227,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (T
 		arg.FileID,
 		arg.LocalPath,
 		arg.SentAt,
+		arg.IsRead,
 	)
 	var i TrackedMessage
 	err := row.Scan(
@@ -231,7 +237,6 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (T
 		&i.MessageID,
 		&i.SenderID,
 		&i.SenderName,
-		&i.RecipientName,
 		&i.IsOutgoing,
 		&i.EncryptedText,
 		&i.MediaType,
@@ -240,15 +245,20 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (T
 		&i.SentAt,
 		&i.CreatedAt,
 		&i.DeletedAt,
+		&i.RecipientName,
+		&i.IsRead,
+		&i.ReadAt,
 	)
 	return i, err
 }
 
 const listChats = `-- name: ListChats :many
+
 SELECT
     t.chat_id AS chat_id,
     COUNT(*) AS msg_count,
     COUNT(*) FILTER (WHERE t.deleted_at IS NOT NULL) AS deleted_count,
+    COUNT(*) FILTER (WHERE t.is_read = FALSE AND t.is_outgoing = FALSE) AS unread_count,
     MAX(t.sent_at) AS last_at,
     COALESCE(
         NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE ORDER BY t2.sent_at DESC LIMIT 1), ''),
@@ -273,6 +283,7 @@ type ListChatsRow struct {
 	ChatID            int64
 	MsgCount          int64
 	DeletedCount      int64
+	UnreadCount       int64
 	LastAt            interface{}
 	PartnerName       interface{}
 	OwnerName         interface{}
@@ -296,6 +307,77 @@ func (q *Queries) ListChats(ctx context.Context) ([]ListChatsRow, error) {
 			&i.ChatID,
 			&i.MsgCount,
 			&i.DeletedCount,
+			&i.UnreadCount,
+			&i.LastAt,
+			&i.PartnerName,
+			&i.OwnerName,
+			&i.LastEncryptedText,
+			&i.LastMediaType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChatsByConnection = `-- name: ListChatsByConnection :many
+SELECT
+    t.chat_id AS chat_id,
+    COUNT(*) AS msg_count,
+    COUNT(*) FILTER (WHERE t.deleted_at IS NOT NULL) AS deleted_count,
+    COUNT(*) FILTER (WHERE t.is_read = FALSE AND t.is_outgoing = FALSE) AS unread_count,
+    MAX(t.sent_at) AS last_at,
+    COALESCE(
+        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        'Собеседник'
+    ) AS partner_name,
+    COALESCE(
+        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
+        'Вы'
+    ) AS owner_name,
+    (SELECT t3.encrypted_text FROM tracked_messages t3
+        WHERE t3.connection_id = t.connection_id AND t3.chat_id = t.chat_id ORDER BY t3.sent_at DESC LIMIT 1) AS last_encrypted_text,
+    (SELECT t4.media_type FROM tracked_messages t4
+        WHERE t4.connection_id = t.connection_id AND t4.chat_id = t.chat_id ORDER BY t4.sent_at DESC LIMIT 1) AS last_media_type
+FROM tracked_messages t
+WHERE t.connection_id = $1
+GROUP BY t.connection_id, t.chat_id
+ORDER BY last_at DESC
+`
+
+type ListChatsByConnectionRow struct {
+	ChatID            int64
+	MsgCount          int64
+	DeletedCount      int64
+	UnreadCount       int64
+	LastAt            interface{}
+	PartnerName       interface{}
+	OwnerName         interface{}
+	LastEncryptedText []byte
+	LastMediaType     *string
+}
+
+// Список диалогов конкретного пользователя/подключения.
+func (q *Queries) ListChatsByConnection(ctx context.Context, connectionID string) ([]ListChatsByConnectionRow, error) {
+	rows, err := q.db.Query(ctx, listChatsByConnection, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChatsByConnectionRow
+	for rows.Next() {
+		var i ListChatsByConnectionRow
+		if err := rows.Scan(
+			&i.ChatID,
+			&i.MsgCount,
+			&i.DeletedCount,
+			&i.UnreadCount,
 			&i.LastAt,
 			&i.PartnerName,
 			&i.OwnerName,
@@ -315,7 +397,7 @@ func (q *Queries) ListChats(ctx context.Context) ([]ListChatsRow, error) {
 const listMessagesBefore = `-- name: ListMessagesBefore :many
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
-    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.chat_id = $1 AND tm.id < $2
@@ -340,6 +422,7 @@ type ListMessagesBeforeRow struct {
 	FileID        *string
 	SentAt        pgtype.Timestamptz
 	DeletedAt     pgtype.Timestamptz
+	IsRead        bool
 	Edited        bool
 }
 
@@ -364,6 +447,79 @@ func (q *Queries) ListMessagesBefore(ctx context.Context, arg ListMessagesBefore
 			&i.FileID,
 			&i.SentAt,
 			&i.DeletedAt,
+			&i.IsRead,
+			&i.Edited,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMessagesBeforeByConn = `-- name: ListMessagesBeforeByConn :many
+SELECT
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
+    EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
+FROM tracked_messages tm
+WHERE tm.connection_id = $1 AND tm.chat_id = $2 AND tm.id < $3
+ORDER BY tm.id DESC
+LIMIT $4
+`
+
+type ListMessagesBeforeByConnParams struct {
+	ConnectionID string
+	ChatID       int64
+	ID           int64
+	Limit        int32
+}
+
+type ListMessagesBeforeByConnRow struct {
+	ID            int64
+	MessageID     int64
+	SenderName    string
+	RecipientName string
+	IsOutgoing    bool
+	EncryptedText []byte
+	MediaType     *string
+	FileID        *string
+	SentAt        pgtype.Timestamptz
+	DeletedAt     pgtype.Timestamptz
+	IsRead        bool
+	Edited        bool
+}
+
+// Более ранние сообщения чата конкретного подключения.
+func (q *Queries) ListMessagesBeforeByConn(ctx context.Context, arg ListMessagesBeforeByConnParams) ([]ListMessagesBeforeByConnRow, error) {
+	rows, err := q.db.Query(ctx, listMessagesBeforeByConn,
+		arg.ConnectionID,
+		arg.ChatID,
+		arg.ID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMessagesBeforeByConnRow
+	for rows.Next() {
+		var i ListMessagesBeforeByConnRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.SenderName,
+			&i.RecipientName,
+			&i.IsOutgoing,
+			&i.EncryptedText,
+			&i.MediaType,
+			&i.FileID,
+			&i.SentAt,
+			&i.DeletedAt,
+			&i.IsRead,
 			&i.Edited,
 		); err != nil {
 			return nil, err
@@ -379,7 +535,7 @@ func (q *Queries) ListMessagesBefore(ctx context.Context, arg ListMessagesBefore
 const listRecentMessages = `-- name: ListRecentMessages :many
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
-    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.chat_id = $1
@@ -403,6 +559,7 @@ type ListRecentMessagesRow struct {
 	FileID        *string
 	SentAt        pgtype.Timestamptz
 	DeletedAt     pgtype.Timestamptz
+	IsRead        bool
 	Edited        bool
 }
 
@@ -427,6 +584,7 @@ func (q *Queries) ListRecentMessages(ctx context.Context, arg ListRecentMessages
 			&i.FileID,
 			&i.SentAt,
 			&i.DeletedAt,
+			&i.IsRead,
 			&i.Edited,
 		); err != nil {
 			return nil, err
@@ -437,6 +595,107 @@ func (q *Queries) ListRecentMessages(ctx context.Context, arg ListRecentMessages
 		return nil, err
 	}
 	return items, nil
+}
+
+const listRecentMessagesByConn = `-- name: ListRecentMessagesByConn :many
+SELECT
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
+    EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
+FROM tracked_messages tm
+WHERE tm.connection_id = $1 AND tm.chat_id = $2
+ORDER BY tm.id DESC
+LIMIT $3
+`
+
+type ListRecentMessagesByConnParams struct {
+	ConnectionID string
+	ChatID       int64
+	Limit        int32
+}
+
+type ListRecentMessagesByConnRow struct {
+	ID            int64
+	MessageID     int64
+	SenderName    string
+	RecipientName string
+	IsOutgoing    bool
+	EncryptedText []byte
+	MediaType     *string
+	FileID        *string
+	SentAt        pgtype.Timestamptz
+	DeletedAt     pgtype.Timestamptz
+	IsRead        bool
+	Edited        bool
+}
+
+// Последние сообщения чата конкретного подключения.
+func (q *Queries) ListRecentMessagesByConn(ctx context.Context, arg ListRecentMessagesByConnParams) ([]ListRecentMessagesByConnRow, error) {
+	rows, err := q.db.Query(ctx, listRecentMessagesByConn, arg.ConnectionID, arg.ChatID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecentMessagesByConnRow
+	for rows.Next() {
+		var i ListRecentMessagesByConnRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.SenderName,
+			&i.RecipientName,
+			&i.IsOutgoing,
+			&i.EncryptedText,
+			&i.MediaType,
+			&i.FileID,
+			&i.SentAt,
+			&i.DeletedAt,
+			&i.IsRead,
+			&i.Edited,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markChatAsRead = `-- name: MarkChatAsRead :execrows
+UPDATE tracked_messages
+SET is_read = TRUE, read_at = NOW()
+WHERE chat_id = $1 AND is_read = FALSE
+`
+
+// Помечает все входящие непрочитанные сообщения чата как прочитанные.
+func (q *Queries) MarkChatAsRead(ctx context.Context, chatID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, markChatAsRead, chatID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markChatAsReadByConn = `-- name: MarkChatAsReadByConn :execrows
+UPDATE tracked_messages
+SET is_read = TRUE, read_at = NOW()
+WHERE connection_id = $1 AND chat_id = $2 AND is_read = FALSE
+`
+
+type MarkChatAsReadByConnParams struct {
+	ConnectionID string
+	ChatID       int64
+}
+
+// Помечает все входящие непрочитанные сообщения чата конкретного подключения как прочитанные.
+func (q *Queries) MarkChatAsReadByConn(ctx context.Context, arg MarkChatAsReadByConnParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markChatAsReadByConn, arg.ConnectionID, arg.ChatID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const markMessageDeleted = `-- name: MarkMessageDeleted :exec
@@ -469,158 +728,4 @@ type UpdateMessageTextParams struct {
 func (q *Queries) UpdateMessageText(ctx context.Context, arg UpdateMessageTextParams) error {
 	_, err := q.db.Exec(ctx, updateMessageText, arg.ID, arg.EncryptedText)
 	return err
-}
-
-const listChatsByConnection = `-- name: ListChatsByConnection :many
-SELECT
-    t.chat_id AS chat_id,
-    COUNT(*) AS msg_count,
-    COUNT(*) FILTER (WHERE t.deleted_at IS NOT NULL) AS deleted_count,
-    MAX(t.sent_at) AS last_at,
-    COALESCE(
-        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE ORDER BY t2.sent_at DESC LIMIT 1), ''),
-        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
-        'Собеседник'
-    ) AS partner_name,
-    COALESCE(
-        NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = TRUE ORDER BY t2.sent_at DESC LIMIT 1), ''),
-        NULLIF((SELECT t2.recipient_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE AND t2.recipient_name IS NOT NULL ORDER BY t2.sent_at DESC LIMIT 1), ''),
-        'Вы'
-    ) AS owner_name,
-    (SELECT t3.encrypted_text FROM tracked_messages t3
-        WHERE t3.connection_id = t.connection_id AND t3.chat_id = t.chat_id ORDER BY t3.sent_at DESC LIMIT 1) AS last_encrypted_text,
-    (SELECT t4.media_type FROM tracked_messages t4
-        WHERE t4.connection_id = t.connection_id AND t4.chat_id = t.chat_id ORDER BY t4.sent_at DESC LIMIT 1) AS last_media_type
-FROM tracked_messages t
-WHERE t.connection_id = $1
-GROUP BY t.connection_id, t.chat_id
-ORDER BY last_at DESC
-`
-
-func (q *Queries) ListChatsByConnection(ctx context.Context, connectionID string) ([]ListChatsRow, error) {
-	rows, err := q.db.Query(ctx, listChatsByConnection, connectionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListChatsRow
-	for rows.Next() {
-		var i ListChatsRow
-		if err := rows.Scan(
-			&i.ChatID,
-			&i.MsgCount,
-			&i.DeletedCount,
-			&i.LastAt,
-			&i.PartnerName,
-			&i.OwnerName,
-			&i.LastEncryptedText,
-			&i.LastMediaType,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listRecentMessagesByConn = `-- name: ListRecentMessagesByConn :many
-SELECT
-    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
-    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
-    EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
-FROM tracked_messages tm
-WHERE tm.connection_id = $1 AND tm.chat_id = $2
-ORDER BY tm.id DESC
-LIMIT $3
-`
-
-type ListRecentMessagesByConnParams struct {
-	ConnectionID string
-	ChatID       int64
-	Limit        int32
-}
-
-func (q *Queries) ListRecentMessagesByConn(ctx context.Context, arg ListRecentMessagesByConnParams) ([]ListRecentMessagesRow, error) {
-	rows, err := q.db.Query(ctx, listRecentMessagesByConn, arg.ConnectionID, arg.ChatID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListRecentMessagesRow
-	for rows.Next() {
-		var i ListRecentMessagesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.MessageID,
-			&i.SenderName,
-			&i.RecipientName,
-			&i.IsOutgoing,
-			&i.EncryptedText,
-			&i.MediaType,
-			&i.FileID,
-			&i.SentAt,
-			&i.DeletedAt,
-			&i.Edited,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listMessagesBeforeByConn = `-- name: ListMessagesBeforeByConn :many
-SELECT
-    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
-    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
-    EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
-FROM tracked_messages tm
-WHERE tm.connection_id = $1 AND tm.chat_id = $2 AND tm.id < $3
-ORDER BY tm.id DESC
-LIMIT $4
-`
-
-type ListMessagesBeforeByConnParams struct {
-	ConnectionID string
-	ChatID       int64
-	ID           int64
-	Limit        int32
-}
-
-func (q *Queries) ListMessagesBeforeByConn(ctx context.Context, arg ListMessagesBeforeByConnParams) ([]ListMessagesBeforeRow, error) {
-	rows, err := q.db.Query(ctx, listMessagesBeforeByConn, arg.ConnectionID, arg.ChatID, arg.ID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListMessagesBeforeRow
-	for rows.Next() {
-		var i ListMessagesBeforeRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.MessageID,
-			&i.SenderName,
-			&i.RecipientName,
-			&i.IsOutgoing,
-			&i.EncryptedText,
-			&i.MediaType,
-			&i.FileID,
-			&i.SentAt,
-			&i.DeletedAt,
-			&i.Edited,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }

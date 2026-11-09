@@ -3,8 +3,8 @@
 -- обновляем изменяемые поля и возвращаем существующую запись.
 INSERT INTO tracked_messages (
     connection_id, chat_id, message_id, sender_id, sender_name, recipient_name,
-    is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    is_outgoing, encrypted_text, media_type, file_id, local_path, sent_at, is_read
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (connection_id, chat_id, message_id) DO UPDATE SET
     encrypted_text = EXCLUDED.encrypted_text,
     media_type = EXCLUDED.media_type,
@@ -46,6 +46,7 @@ SELECT
     t.chat_id AS chat_id,
     COUNT(*) AS msg_count,
     COUNT(*) FILTER (WHERE t.deleted_at IS NOT NULL) AS deleted_count,
+    COUNT(*) FILTER (WHERE t.is_read = FALSE AND t.is_outgoing = FALSE) AS unread_count,
     MAX(t.sent_at) AS last_at,
     COALESCE(
         NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE ORDER BY t2.sent_at DESC LIMIT 1), ''),
@@ -71,6 +72,7 @@ SELECT
     t.chat_id AS chat_id,
     COUNT(*) AS msg_count,
     COUNT(*) FILTER (WHERE t.deleted_at IS NOT NULL) AS deleted_count,
+    COUNT(*) FILTER (WHERE t.is_read = FALSE AND t.is_outgoing = FALSE) AS unread_count,
     MAX(t.sent_at) AS last_at,
     COALESCE(
         NULLIF((SELECT t2.sender_name FROM tracked_messages t2 WHERE t2.connection_id = t.connection_id AND t2.chat_id = t.chat_id AND t2.is_outgoing = FALSE ORDER BY t2.sent_at DESC LIMIT 1), ''),
@@ -95,7 +97,7 @@ ORDER BY last_at DESC;
 -- Последние сообщения чата (новые сверху). Флаг edited — есть ли правки.
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
-    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.chat_id = $1
@@ -106,7 +108,7 @@ LIMIT $2;
 -- Последние сообщения чата конкретного подключения.
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
-    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.connection_id = $1 AND tm.chat_id = $2
@@ -117,7 +119,7 @@ LIMIT $3;
 -- Более ранние сообщения чата (для подгрузки истории вверх).
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
-    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.chat_id = $1 AND tm.id < $2
@@ -128,12 +130,24 @@ LIMIT $3;
 -- Более ранние сообщения чата конкретного подключения.
 SELECT
     tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
-    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
     EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
 FROM tracked_messages tm
 WHERE tm.connection_id = $1 AND tm.chat_id = $2 AND tm.id < $3
 ORDER BY tm.id DESC
 LIMIT $4;
+
+-- name: MarkChatAsRead :execrows
+-- Помечает все входящие непрочитанные сообщения чата как прочитанные.
+UPDATE tracked_messages
+SET is_read = TRUE, read_at = NOW()
+WHERE chat_id = $1 AND is_read = FALSE;
+
+-- name: MarkChatAsReadByConn :execrows
+-- Помечает все входящие непрочитанные сообщения чата конкретного подключения как прочитанные.
+UPDATE tracked_messages
+SET is_read = TRUE, read_at = NOW()
+WHERE connection_id = $1 AND chat_id = $2 AND is_read = FALSE;
 
 -- name: GetEditsByMessage :many
 -- Все предыдущие версии текста сообщения (от старой к новой).

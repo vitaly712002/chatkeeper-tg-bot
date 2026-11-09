@@ -18,7 +18,7 @@ import {
   CheckCircle2,
   User,
 } from 'lucide-react';
-import { getChatMessages, sendMessage, sendMedia, deleteMessage, forwardMessage } from '../api';
+import { getChatMessages, sendMessage, sendMedia, deleteMessage, forwardMessage, markChatRead } from '../api';
 import MessageBubble from './MessageBubble';
 import EditHistory from './EditHistory';
 import MediaModal from './MediaModal';
@@ -52,10 +52,12 @@ export default function ChatView({
   ownerName,
   partnerName,
   onBack,
+  onChatRead,
   lastWsEvent,
   chats = [],
 }) {
   const [messages, setMessages] = useState([]);
+  const [firstUnreadId, setFirstUnreadId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState('');
@@ -89,6 +91,7 @@ export default function ChatView({
   const scrollContainerRef = useRef(null);
   const topSentinelRef = useRef(null);
   const bottomRef = useRef(null);
+  const firstUnreadRef = useRef(null);
   const loadingOlderRef = useRef(false);
   const pendingScrollAdjustRef = useRef(null);
   const isNearBottomRef = useRef(true);
@@ -133,12 +136,26 @@ export default function ChatView({
         const list = Array.isArray(data) ? data : [];
         setMessages(list);
         setHasMore(list.length >= PAGE);
-        // Мгновенная прокрутка вниз к самым свежим сообщениям
+
+        // Ищем первое непрочитанное входящее сообщение
+        const firstUnread = list.find((m) => !m.is_read && !m.is_outgoing);
+        if (firstUnread) {
+          setFirstUnreadId(firstUnread.id);
+          // Помечаем чат прочитанным на сервере и в интерфейсе
+          markChatRead(chatId, connectionId).catch(() => {});
+          if (onChatRead) onChatRead(chatId);
+        } else {
+          setFirstUnreadId(null);
+        }
+
+        // Прокрутка: если есть непрочитанные — к плашке непрочитанных, иначе вниз к свежим
         setTimeout(() => {
-          if (bottomRef.current) {
+          if (firstUnreadRef.current) {
+            firstUnreadRef.current.scrollIntoView({ behavior: 'auto', block: 'center' });
+          } else if (bottomRef.current) {
             bottomRef.current.scrollIntoView({ behavior: 'auto' });
           }
-        }, 10);
+        }, 15);
       })
       .catch((e) => !cancelled && setError(e.message || 'Ошибка загрузки'))
       .finally(() => !cancelled && setLoading(false));
@@ -146,7 +163,7 @@ export default function ChatView({
     return () => {
       cancelled = true;
     };
-  }, [chatId, connectionId]);
+  }, [chatId, connectionId, onChatRead]);
 
   // 2. Обработка входящих событий WebSocket в реальном времени
   useEffect(() => {
@@ -170,12 +187,23 @@ export default function ChatView({
         return [...prev, newMsg];
       });
 
+      // Если пришло входящее сообщение, когда чат уже открыт перед глазами пользователя,
+      // помечаем его прочитанным сразу
+      if (!newMsg.is_outgoing) {
+        markChatRead(chatId, connectionId).catch(() => {});
+        if (onChatRead) onChatRead(chatId);
+      }
+
       // Если пользователь читал внизу — мягко докручиваем к новому сообщению
       if (isNearBottomRef.current) {
         setTimeout(() => {
           bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
         }, 50);
       }
+    } else if (type === 'chat_read') {
+      setMessages((prev) =>
+        prev.map((m) => (!m.is_outgoing && !m.is_read ? { ...m, is_read: true } : m))
+      );
     } else if (type === 'message_edited') {
       const { message_id, new_text } = data;
       setMessages((prev) =>
@@ -695,19 +723,36 @@ export default function ChatView({
           </div>
         )}
 
-        {messages.map((m) => (
-          <MessageBubble
-            key={m.id || m.message_id}
-            msg={m}
-            onShowEdits={setEditTarget}
-            onPreviewMedia={setPreviewMedia}
-            fallbackOwner={effectiveOwner}
-            fallbackPartner={effectivePartner}
-            onReply={(msg) => setReplyTo(msg)}
-            onForward={(msg) => setForwardMsg(msg)}
-            onDelete={(msg) => setDeleteConfirmMsg(msg)}
-          />
-        ))}
+        {messages.map((m) => {
+          const isFirstUnread = firstUnreadId && m.id === firstUnreadId;
+          return (
+            <React.Fragment key={m.id || m.message_id}>
+              {isFirstUnread && (
+                <div
+                  ref={firstUnreadRef}
+                  className="flex items-center justify-center my-3.5 py-1 select-none animate-in fade-in"
+                >
+                  <div className="flex-1 h-px bg-indigo-500/30" />
+                  <span className="mx-3 text-[11px] font-semibold text-indigo-300 bg-indigo-950/80 border border-indigo-500/40 px-3 py-1 rounded-full shadow-sm flex items-center gap-1.5 backdrop-blur">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                    Непрочитанные сообщения
+                  </span>
+                  <div className="flex-1 h-px bg-indigo-500/30" />
+                </div>
+              )}
+              <MessageBubble
+                msg={m}
+                onShowEdits={setEditTarget}
+                onPreviewMedia={setPreviewMedia}
+                fallbackOwner={effectiveOwner}
+                fallbackPartner={effectivePartner}
+                onReply={(msg) => setReplyTo(msg)}
+                onForward={(msg) => setForwardMsg(msg)}
+                onDelete={(msg) => setDeleteConfirmMsg(msg)}
+              />
+            </React.Fragment>
+          );
+        })}
 
         <div ref={bottomRef} className="h-0.5" />
       </div>

@@ -12,11 +12,12 @@ type BusinessConnection struct {
 	ID         string
 	UserID     int64
 	UserChatID int64
-	UserName   *string
 	CanReply   bool
 	IsEnabled  bool
 	CreatedAt  pgtype.Timestamptz
 	UpdatedAt  pgtype.Timestamptz
+	UserName   *string
+	IsPaused   bool
 }
 
 type MessageEdit struct {
@@ -33,7 +34,6 @@ type TrackedMessage struct {
 	MessageID     int64
 	SenderID      int64
 	SenderName    string
-	RecipientName *string
 	IsOutgoing    bool
 	EncryptedText []byte
 	MediaType     *string
@@ -42,4 +42,7 @@ type TrackedMessage struct {
 	SentAt        pgtype.Timestamptz
 	CreatedAt     pgtype.Timestamptz
 	DeletedAt     pgtype.Timestamptz
+	RecipientName *string
+	IsRead        bool
+	ReadAt        pgtype.Timestamptz
 }

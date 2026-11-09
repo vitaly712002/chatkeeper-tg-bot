@@ -45,6 +45,11 @@ func (r *Runner) handleDeletedBusinessMessages(ctx context.Context, d *models.Bu
 			continue
 		}
 
+		// Если бот временно на паузе — не шлём уведомление в Telegram
+		if conn.IsPaused {
+			continue
+		}
+
 		r.reportDeleted(ctx, conn.UserChatID, saved)
 	}
 

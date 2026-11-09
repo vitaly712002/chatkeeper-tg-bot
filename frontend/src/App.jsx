@@ -6,7 +6,7 @@ import UserList from './components/UserList';
 import ChatList from './components/ChatList';
 import ChatView from './components/ChatView';
 import StatCard from './components/StatCard';
-import { getCurrentUser, logout, getUsers, getChats, getStats, createWebSocketClient } from './api';
+import { getCurrentUser, logout, getUsers, getChats, getStats, createWebSocketClient, toggleBotPause } from './api';
 
 export default function App() {
   const [user, setUser] = useState(getCurrentUser());
@@ -34,6 +34,12 @@ export default function App() {
   useEffect(() => {
     selectedConnectionIdRef.current = selectedConnectionId;
   }, [selectedConnectionId]);
+
+  // Реф для отслеживания текущего открытого чата
+  const selectedChatIdRef = useRef(selectedChatId);
+  useEffect(() => {
+    selectedChatIdRef.current = selectedChatId;
+  }, [selectedChatId]);
 
   // 1. Первичная загрузка списка пользователей и общей статистики после авторизации
   useEffect(() => {
@@ -82,6 +88,9 @@ export default function App() {
 
     if (type === 'message_created') {
       const { connection_id, chat_id, message } = data;
+      const isIncoming = !message.is_outgoing;
+      const isCurrentChatOpen = String(selectedChatIdRef.current) === String(chat_id);
+      const shouldIncrementUnread = isIncoming && !isCurrentChatOpen;
 
       // Обновляем общую статистику
       setStats((prev) =>
@@ -100,6 +109,9 @@ export default function App() {
             ? {
                 ...u,
                 messages_count: (Number(u.messages_count) || 0) + 1,
+                unread_count: shouldIncrementUnread
+                  ? (Number(u.unread_count) || 0) + 1
+                  : (Number(u.unread_count) || 0),
                 last_at: message.sent_at,
               }
             : u
@@ -114,11 +126,13 @@ export default function App() {
           const previewText = message.text || (message.media_type ? `📎 [${message.media_type}]` : '—');
 
           if (existingIdx !== -1) {
+            const currentUnread = Number(prev[existingIdx].unread_count) || 0;
             const updatedChat = {
               ...prev[existingIdx],
               last_text: previewText,
               last_at: message.sent_at,
               count: (Number(prev[existingIdx].count) || 0) + 1,
+              unread_count: shouldIncrementUnread ? currentUnread + 1 : (isCurrentChatOpen ? 0 : currentUnread),
             };
             // Перемещаем чат с новым сообщением наверх списка (как в Telegram)
             const rest = prev.filter((_, idx) => idx !== existingIdx);
@@ -134,6 +148,20 @@ export default function App() {
           }
         });
       }
+    } else if (type === 'chat_read') {
+      const { chat_id } = data;
+      setChats((prev) =>
+        prev.map((c) =>
+          String(c.chat_id) === String(chat_id)
+            ? { ...c, unread_count: 0 }
+            : c
+        )
+      );
+      getUsers()
+        .then((freshUsers) => {
+          if (Array.isArray(freshUsers)) setUsers(freshUsers);
+        })
+        .catch(() => {});
     } else if (type === 'message_edited') {
       const { chat_id, new_text } = data;
       setStats((prev) =>
@@ -202,6 +230,61 @@ export default function App() {
 
   const selectedUser = users.find((u) => u.connection_id === selectedConnectionId);
   const selectedChat = chats.find((c) => String(c.chat_id) === String(selectedChatId));
+  const isBotPaused = selectedUser
+    ? !!selectedUser.is_paused
+    : users.length > 0 && users.every((u) => u.is_paused);
+
+  const handleSelectChat = (chatId) => {
+    setSelectedChatId(chatId);
+    if (chatId) {
+      setChats((prev) =>
+        prev.map((c) =>
+          String(c.chat_id) === String(chatId)
+            ? { ...c, unread_count: 0 }
+            : c
+        )
+      );
+    }
+  };
+
+  const handleChatRead = (readChatId) => {
+    if (readChatId) {
+      setChats((prev) =>
+        prev.map((c) =>
+          String(c.chat_id) === String(readChatId)
+            ? { ...c, unread_count: 0 }
+            : c
+        )
+      );
+    }
+  };
+
+  const handleTogglePause = async () => {
+    try {
+      const nextPaused = !isBotPaused;
+      // Оптимистичное обновление
+      setUsers((prev) =>
+        prev.map((u) =>
+          !selectedConnectionId || u.connection_id === selectedConnectionId
+            ? { ...u, is_paused: nextPaused }
+            : u
+        )
+      );
+      const res = await toggleBotPause(selectedConnectionId, nextPaused);
+      if (res && typeof res.is_paused === 'boolean') {
+        setUsers((prev) =>
+          prev.map((u) =>
+            !selectedConnectionId || u.connection_id === selectedConnectionId
+              ? { ...u, is_paused: res.is_paused }
+              : u
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Ошибка переключения паузы:', err);
+      getUsers().then((d) => { if (Array.isArray(d)) setUsers(d); }).catch(() => {});
+    }
+  };
 
   return (
     <div className="h-dvh bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
@@ -215,6 +298,8 @@ export default function App() {
           setStats((prev) => (prev ? { ...prev, storage: newStorage } : null))
         }
         wsStatus={wsStatus}
+        isPaused={isBotPaused}
+        onTogglePause={handleTogglePause}
       />
 
       {activeTab === 'chats' && (
@@ -242,7 +327,7 @@ export default function App() {
                 chats={chats}
                 loading={chatsLoading}
                 selectedChatId={selectedChatId}
-                onSelect={setSelectedChatId}
+                onSelect={handleSelectChat}
                 selectedUserName={selectedUser?.user_name}
                 users={users}
                 selectedConnectionId={selectedConnectionId}
@@ -264,6 +349,7 @@ export default function App() {
                 ownerName={selectedChat?.owner_name || selectedUser?.user_name}
                 partnerName={selectedChat?.partner_name}
                 onBack={() => setSelectedChatId(null)}
+                onChatRead={handleChatRead}
                 lastWsEvent={lastWsEvent}
                 chats={chats}
               />

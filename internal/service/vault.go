@@ -93,6 +93,19 @@ func (v *Vault) GetConnectionByUser(ctx context.Context, userID int64) (gen.Busi
 	return conn, err
 }
 
+// SetConnectionPaused переключает статус паузы бота для конкретного подключения.
+func (v *Vault) SetConnectionPaused(ctx context.Context, id string, paused bool) error {
+	return v.store.SetConnectionPaused(ctx, gen.SetConnectionPausedParams{
+		ID:       id,
+		IsPaused: paused,
+	})
+}
+
+// SetAllConnectionsPaused переключает статус паузы для всех подключений.
+func (v *Vault) SetAllConnectionsPaused(ctx context.Context, paused bool) error {
+	return v.store.SetAllConnectionsPaused(ctx, paused)
+}
+
 // GetLastConnectionByChat возвращает connection_id последнего сообщения в данном чате.
 func (v *Vault) GetLastConnectionByChat(ctx context.Context, chatID int64) (string, error) {
 	return v.store.GetLastConnectionByChat(ctx, chatID)
@@ -140,6 +153,7 @@ func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) (MessageVie
 		FileID:        nullStr(in.FileID),
 		LocalPath:     nullStr(in.LocalPath),
 		SentAt:        toTimestamptz(in.SentAt),
+		IsRead:        in.IsOutgoing,
 	})
 	if err != nil {
 		return MessageView{}, err
@@ -157,7 +171,19 @@ func (v *Vault) SaveMessage(ctx context.Context, in IncomingMessage) (MessageVie
 		SentAt:        row.SentAt.Time,
 		DeletedAt:     nil,
 		Edited:        false,
+		IsRead:        row.IsRead,
 	}, nil
+}
+
+// MarkChatAsRead помечает все непрочитанные входящие сообщения в чате как прочитанные.
+func (v *Vault) MarkChatAsRead(ctx context.Context, connectionID string, chatID int64) (int64, error) {
+	if connectionID != "" {
+		return v.store.MarkChatAsReadByConn(ctx, gen.MarkChatAsReadByConnParams{
+			ConnectionID: connectionID,
+			ChatID:       chatID,
+		})
+	}
+	return v.store.MarkChatAsRead(ctx, chatID)
 }
 
 // GetDeleted достаёт и расшифровывает сообщение, которое только что удалили.

@@ -136,8 +136,8 @@ func (r *Runner) tryRescueMedia(ctx context.Context, conn gen.BusinessConnection
 		saveAndLink(path)
 	}
 
-	// Шаг 4: отправляем копию владельцу в личный чат бота, если это чужое исчезающее медиа.
-	if !targetIsOutgoing {
+	// Шаг 4: отправляем копию владельцу в личный чат бота, если это чужое исчезающее медиа и бот не на паузе.
+	if !targetIsOutgoing && !conn.IsPaused {
 		r.sendRescuedMedia(ctx, conn.UserChatID, media, data)
 	}
 }

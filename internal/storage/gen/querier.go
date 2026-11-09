@@ -31,15 +31,29 @@ type Querier interface {
 	InsertMessage(ctx context.Context, arg InsertMessageParams) (TrackedMessage, error)
 	// === Запросы для веб-API ===
 	// Список диалогов: для каждого chat_id — счётчики, время и превью последнего
-	// сообщения, а также имя собеседника (последний не-исходящий отправитель).
+	// сообщения, а также имена обоих участников (владельца и собеседника).
 	ListChats(ctx context.Context) ([]ListChatsRow, error)
+	// Список диалогов конкретного пользователя/подключения.
+	ListChatsByConnection(ctx context.Context, connectionID string) ([]ListChatsByConnectionRow, error)
 	// Более ранние сообщения чата (для подгрузки истории вверх).
 	ListMessagesBefore(ctx context.Context, arg ListMessagesBeforeParams) ([]ListMessagesBeforeRow, error)
+	// Более ранние сообщения чата конкретного подключения.
+	ListMessagesBeforeByConn(ctx context.Context, arg ListMessagesBeforeByConnParams) ([]ListMessagesBeforeByConnRow, error)
 	// Последние сообщения чата (новые сверху). Флаг edited — есть ли правки.
 	ListRecentMessages(ctx context.Context, arg ListRecentMessagesParams) ([]ListRecentMessagesRow, error)
+	// Последние сообщения чата конкретного подключения.
+	ListRecentMessagesByConn(ctx context.Context, arg ListRecentMessagesByConnParams) ([]ListRecentMessagesByConnRow, error)
+	// Список подключённых аккаунтов Telegram Business с агрегированной статистикой.
+	ListUsers(ctx context.Context) ([]ListUsersRow, error)
+	// Помечает все входящие непрочитанные сообщения чата как прочитанные.
+	MarkChatAsRead(ctx context.Context, chatID int64) (int64, error)
+	// Помечает все входящие непрочитанные сообщения чата конкретного подключения как прочитанные.
+	MarkChatAsReadByConn(ctx context.Context, arg MarkChatAsReadByConnParams) (int64, error)
 	// Помечает сообщение удалённым (для показа в веб-панели).
 	MarkMessageDeleted(ctx context.Context, arg MarkMessageDeletedParams) error
+	SetAllConnectionsPaused(ctx context.Context, isPaused bool) error
 	SetConnectionEnabled(ctx context.Context, arg SetConnectionEnabledParams) error
+	SetConnectionPaused(ctx context.Context, arg SetConnectionPausedParams) error
 	// Обновляет текст сообщения (после редактирования).
 	UpdateMessageText(ctx context.Context, arg UpdateMessageTextParams) error
 	// Создаёт или обновляет бизнес-подключение.

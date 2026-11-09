@@ -51,6 +51,11 @@ func (r *Runner) handleEditedBusinessMessage(ctx context.Context, m *models.Mess
 		return
 	}
 
+	// Если бот временно поставлен на паузу — не шлём уведомления в Telegram
+	if conn.IsPaused {
+		return
+	}
+
 	text := "✏️ <b>Сообщение изменено</b>\n" +
 		"От: " + esc(res.SenderName) + "\n\n" +
 		"<b>Было:</b>\n" + esc(res.OldText) + "\n\n" +

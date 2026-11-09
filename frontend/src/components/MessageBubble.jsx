@@ -13,6 +13,7 @@ import {
   Reply,
   Copy,
   Check,
+  CheckCheck,
   Forward,
   Play,
   Pause,
@@ -44,12 +45,15 @@ export default function MessageBubble({
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // Цвет пузыря: удалённые — красные, исходящие — индиго, входящие — серые.
+  // Цвет пузыря: удалённые — красные, исходящие — индиго, входящие — серые (или акцент для непрочитанных).
+  const isUnread = !outgoing && !msg.is_read;
   const bubbleClass = deleted
     ? 'bg-rose-500/10 border border-rose-500/30'
     : outgoing
       ? 'bg-indigo-600/20 border border-indigo-500/30'
-      : 'bg-slate-800/70 border border-slate-700/60';
+      : isUnread
+        ? 'bg-slate-800/90 border border-indigo-500/40 ring-1 ring-indigo-500/20'
+        : 'bg-slate-800/70 border border-slate-700/60';
 
   const rawFrom = outgoing
     ? (msg.sender_name || fallbackOwner || 'Вы')
@@ -147,7 +151,7 @@ export default function MessageBubble({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {msg.edited && (
               <button
                 type="button"
@@ -164,6 +168,21 @@ export default function MessageBubble({
               </span>
             )}
             <span>{fmtTime(msg.sent_at)}</span>
+            {outgoing && !deleted && (
+              <span className="inline-flex items-center ml-0.5">
+                {msg.is_read ? (
+                  <CheckCheck className="w-3.5 h-3.5 text-sky-400" title="Прочитано" />
+                ) : (
+                  <Check className="w-3.5 h-3.5 text-slate-400" title="Отправлено" />
+                )}
+              </span>
+            )}
+            {isUnread && (
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-indigo-400 ring-2 ring-indigo-400/20 shrink-0 ml-0.5"
+                title="Не прочитано"
+              />
+            )}
           </div>
         </div>
       </div>
