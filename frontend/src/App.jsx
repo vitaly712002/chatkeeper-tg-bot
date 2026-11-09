@@ -241,20 +241,11 @@ export default function App() {
     ? !!selectedUser.is_paused
     : users.length > 0 && users.every((u) => u.is_paused);
 
-  const handleSelectChat = (chatId) => {
+  const handleSelectChat = useCallback((chatId) => {
     setSelectedChatId(chatId);
-    if (chatId) {
-      setChats((prev) =>
-        prev.map((c) =>
-          String(c.chat_id) === String(chatId)
-            ? { ...c, unread_count: 0 }
-            : c
-        )
-      );
-    }
-  };
+  }, []);
 
-  const handleChatRead = (readChatId) => {
+  const handleChatRead = useCallback((readChatId) => {
     if (readChatId) {
       setChats((prev) =>
         prev.map((c) =>
@@ -263,8 +254,9 @@ export default function App() {
             : c
         )
       );
+      getUsers().then((d) => { if (Array.isArray(d)) setUsers(d); }).catch(() => {});
     }
-  };
+  }, []);
 
   const handleTogglePause = async () => {
     try {

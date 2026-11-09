@@ -95,6 +95,28 @@ export default function ChatView({
   const loadingOlderRef = useRef(false);
   const pendingScrollAdjustRef = useRef(null);
   const isNearBottomRef = useRef(true);
+  const hasInitialScrolledRef = useRef(false);
+
+  // Рефы для стабильных значений внутри observer и фоновых обработчиков без лишних ре-рендеров
+  const onChatReadRef = useRef(onChatRead);
+  useEffect(() => {
+    onChatReadRef.current = onChatRead;
+  }, [onChatRead]);
+
+  const hasMoreRef = useRef(hasMore);
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  const loadingRef = useRef(loading);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -114,6 +136,7 @@ export default function ChatView({
   useEffect(() => {
     if (!chatId) return;
     let cancelled = false;
+    hasInitialScrolledRef.current = false;
     setLoading(true);
     setLoadingOlder(false);
     loadingOlderRef.current = false;
@@ -141,21 +164,29 @@ export default function ChatView({
         const firstUnread = list.find((m) => !m.is_read && !m.is_outgoing);
         if (firstUnread) {
           setFirstUnreadId(firstUnread.id);
-          // Помечаем чат прочитанным на сервере и в интерфейсе
-          markChatRead(chatId, connectionId).catch(() => {});
-          if (onChatRead) onChatRead(chatId);
+          // Помечаем чат прочитанным на сервере с небольшой паузой,
+          // чтобы пользователь успел увидеть плашку «Непрочитанные сообщения» и новые сообщения
+          setTimeout(() => {
+            if (!cancelled) {
+              markChatRead(chatId, connectionId).catch(() => {});
+              if (onChatReadRef.current) onChatReadRef.current(chatId);
+            }
+          }, 1200);
         } else {
           setFirstUnreadId(null);
         }
 
-        // Прокрутка: если есть непрочитанные — к плашке непрочитанных, иначе вниз к свежим
-        setTimeout(() => {
-          if (firstUnreadRef.current) {
-            firstUnreadRef.current.scrollIntoView({ behavior: 'auto', block: 'center' });
-          } else if (bottomRef.current) {
-            bottomRef.current.scrollIntoView({ behavior: 'auto' });
-          }
-        }, 15);
+        // Первичное позиционирование скролла только ОДИН раз при открытии чата
+        if (!hasInitialScrolledRef.current) {
+          hasInitialScrolledRef.current = true;
+          setTimeout(() => {
+            if (firstUnreadRef.current) {
+              firstUnreadRef.current.scrollIntoView({ behavior: 'auto', block: 'center' });
+            } else if (bottomRef.current) {
+              bottomRef.current.scrollIntoView({ behavior: 'auto' });
+            }
+          }, 20);
+        }
       })
       .catch((e) => !cancelled && setError(e.message || 'Ошибка загрузки'))
       .finally(() => !cancelled && setLoading(false));
@@ -163,7 +194,7 @@ export default function ChatView({
     return () => {
       cancelled = true;
     };
-  }, [chatId, connectionId, onChatRead]);
+  }, [chatId, connectionId]);
 
   // 2. Обработка входящих событий WebSocket в реальном времени
   useEffect(() => {
@@ -201,9 +232,12 @@ export default function ChatView({
         }, 50);
       }
     } else if (type === 'chat_read') {
-      setMessages((prev) =>
-        prev.map((m) => (!m.is_outgoing && !m.is_read ? { ...m, is_read: true } : m))
-      );
+      // Помечаем прочитанным с задержкой, чтобы пользователь успел увидеть подсветку новых сообщений
+      setTimeout(() => {
+        setMessages((prev) =>
+          prev.map((m) => (!m.is_outgoing && !m.is_read ? { ...m, is_read: true } : m))
+        );
+      }, 2000);
     } else if (type === 'message_edited') {
       const { message_id, new_text } = data;
       setMessages((prev) =>
@@ -233,26 +267,20 @@ export default function ChatView({
       const container = scrollContainerRef.current;
       const newScrollHeight = container.scrollHeight;
       const diff = newScrollHeight - prevScrollHeight;
-      container.scrollTop = prevScrollTop + diff;
+      if (diff > 0) {
+        container.scrollTop = prevScrollTop + diff;
+      }
       pendingScrollAdjustRef.current = null;
     }
   }, [messages]);
 
   // 4. Подгрузка более ранних сообщений (без клика мышью, вызывается при приближении к верху)
   const loadOlder = useCallback(async () => {
-    if (loadingOlderRef.current || !hasMore || messages.length === 0 || loading) return;
+    if (loadingOlderRef.current || !hasMoreRef.current || messagesRef.current.length === 0 || loadingRef.current) return;
 
-    const oldestId = messages[0].id;
+    const oldestId = messagesRef.current[0].id;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
-
-    const container = scrollContainerRef.current;
-    if (container) {
-      pendingScrollAdjustRef.current = {
-        prevScrollHeight: container.scrollHeight,
-        prevScrollTop: container.scrollTop,
-      };
-    }
 
     try {
       const older = await getChatMessages(chatId, {
@@ -262,11 +290,19 @@ export default function ChatView({
       });
       const list = Array.isArray(older) ? older : [];
       if (list.length > 0) {
-        setMessages((prev) => {
-          const existingIds = new Set(prev.map((m) => m.id));
-          const fresh = list.filter((m) => !existingIds.has(m.id));
-          return [...fresh, ...prev];
-        });
+        const existingIds = new Set(messagesRef.current.map((m) => m.id));
+        const fresh = list.filter((m) => !existingIds.has(m.id));
+        if (fresh.length > 0) {
+          // Точно замеряем высоту и скролл ПРЯМО перед добавлением новых сообщений в DOM
+          const container = scrollContainerRef.current;
+          if (container) {
+            pendingScrollAdjustRef.current = {
+              prevScrollHeight: container.scrollHeight,
+              prevScrollTop: container.scrollTop,
+            };
+          }
+          setMessages((prev) => [...fresh, ...prev]);
+        }
       }
       setHasMore(list.length >= PAGE);
     } catch (e) {
@@ -276,7 +312,7 @@ export default function ChatView({
       setLoadingOlder(false);
       loadingOlderRef.current = false;
     }
-  }, [chatId, connectionId, hasMore, messages, loading]);
+  }, [chatId, connectionId]);
 
   // 5. IntersectionObserver для верхнего сенсора (автоматический loading list)
   useEffect(() => {
@@ -289,36 +325,31 @@ export default function ChatView({
         const entry = entries[0];
         if (
           entry.isIntersecting &&
-          hasMore &&
+          hasMoreRef.current &&
           !loadingOlderRef.current &&
-          !loading &&
-          messages.length > 0
+          !loadingRef.current &&
+          messagesRef.current.length > 0
         ) {
           loadOlder();
         }
       },
       {
         root: container,
-        rootMargin: '160px 0px 0px 0px',
+        rootMargin: '120px 0px 0px 0px',
         threshold: 0.05,
       }
     );
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadOlder, messages.length]);
+  }, [loadOlder]);
 
-  // 6. Обработка прокрутки: отслеживание низа и резервный триггер загрузки
+  // 6. Обработка прокрутки: отслеживание низа
   const handleScroll = (e) => {
     const target = e.currentTarget;
     const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
     isNearBottomRef.current = distanceFromBottom < 120;
     setShowScrollBottom(distanceFromBottom > 280);
-
-    // Резервная проверка приближения к верху
-    if (target.scrollTop < 120 && hasMore && !loadingOlderRef.current && !loading && messages.length > 0) {
-      loadOlder();
-    }
   };
 
   const scrollToBottom = () => {
@@ -694,6 +725,7 @@ export default function ChatView({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
+        style={{ overflowAnchor: 'none' }}
         className="flex-1 overflow-y-auto px-2.5 sm:px-4 py-3 sm:py-4 space-y-2"
       >
         {/* Сенсор верхней границы для автоматического loading list */}
