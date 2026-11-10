@@ -17,12 +17,15 @@ import {
   Search,
   CheckCircle2,
   User,
+  ExternalLink,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { getChatMessages, sendMessage, sendMedia, deleteMessage, forwardMessage, markChatRead } from '../api';
 import MessageBubble from './MessageBubble';
 import EditHistory from './EditHistory';
 import MediaModal from './MediaModal';
-import { parseTelegramName } from '../utils';
+import { parseTelegramName, getTelegramLinks, getPreferredTgClient, setPreferredTgClient } from '../utils';
 
 const PAGE = 50;
 
@@ -87,6 +90,29 @@ export default function ChatView({
   const [withAuthorHeader, setWithAuthorHeader] = useState(true);
   const [isForwarding, setIsForwarding] = useState(false);
   const [forwardSuccess, setForwardSuccess] = useState('');
+
+  // Меню выбора версии Telegram Web / Desktop
+  const [tgMenuOpen, setTgMenuOpen] = useState(false);
+  const [preferredClient, setPreferredClient] = useState(getPreferredTgClient);
+  const tgMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (tgMenuRef.current && !tgMenuRef.current.contains(e.target)) {
+        setTgMenuOpen(false);
+      }
+    };
+    if (tgMenuOpen) {
+      document.addEventListener('mousedown', handleOutside);
+      return () => document.removeEventListener('mousedown', handleOutside);
+    }
+  }, [tgMenuOpen]);
+
+  const handleSelectClient = (client) => {
+    setPreferredClient(client);
+    setPreferredTgClient(client);
+    setTgMenuOpen(false);
+  };
 
   const scrollContainerRef = useRef(null);
   const topSentinelRef = useRef(null);
@@ -655,6 +681,13 @@ export default function ChatView({
   const effectivePartner = partnerName || chatTitle || `Чат ${chatId}`;
   const ownerInfo = parseTelegramName(effectiveOwner);
   const partnerInfo = parseTelegramName(effectivePartner);
+  const tgLinks = getTelegramLinks(chatId, partnerInfo.username);
+
+  const getTargetUrl = () => {
+    if (preferredClient === 'a') return tgLinks.webA;
+    if (preferredClient === 'app') return tgLinks.app;
+    return tgLinks.webK;
+  };
 
   return (
     <div className="flex-1 flex flex-col min-h-0 relative bg-slate-950/60">
@@ -681,12 +714,14 @@ export default function ChatView({
               </span>
               {ownerInfo.username && (
                 <a
-                  href={`https://t.me/${ownerInfo.username}`}
+                  href={`https://web.telegram.org/k/#@${ownerInfo.username}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-[10px] sm:text-xs font-normal text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 transition-colors"
+                  className="text-[10px] sm:text-xs font-normal text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 transition-colors inline-flex items-center gap-1"
+                  title="Открыть в Telegram Web"
                 >
                   @{ownerInfo.username}
+                  <ExternalLink className="w-2.5 h-2.5 opacity-70" />
                 </a>
               )}
               <span className="text-slate-500 text-xs">⟷</span>
@@ -695,30 +730,131 @@ export default function ChatView({
               </span>
               {partnerInfo.username && (
                 <a
-                  href={`https://t.me/${partnerInfo.username}`}
+                  href={getTargetUrl()}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-[10px] sm:text-xs font-normal text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 transition-colors"
+                  className="text-[10px] sm:text-xs font-normal text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 transition-colors inline-flex items-center gap-1"
+                  title="Открыть в Telegram Web"
                 >
                   @{partnerInfo.username}
+                  <ExternalLink className="w-2.5 h-2.5 opacity-70" />
                 </a>
               )}
             </div>
-            <div className="text-[10px] sm:text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
-              <span>Диалог Telegram Business (ID: {chatId})</span>
+            <div className="text-[10px] sm:text-[11px] text-slate-400 flex items-center gap-1.5 sm:gap-2 mt-0.5 flex-wrap">
+              <span>Диалог Telegram Business:</span>
+              <a
+                href={getTargetUrl()}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 underline underline-offset-2 font-mono hover:bg-sky-500/10 px-1 py-0.5 rounded transition-colors"
+                title="Открыть этот диалог в Telegram Web"
+              >
+                ID: {chatId}
+                <ExternalLink className="w-2.5 h-2.5 opacity-80" />
+              </a>
               <span className="hidden sm:inline text-slate-600">•</span>
               <span className="hidden sm:inline text-indigo-400/80">Синхронизация в реальном времени</span>
             </div>
           </div>
         </div>
 
-        <button
-          onClick={refresh}
-          title="Обновить переписку"
-          className="p-2 text-slate-400 hover:text-indigo-300 hover:bg-slate-800/70 active:bg-slate-800 rounded-xl shrink-0 transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Кнопка быстрого перехода в Telegram Web */}
+          <div className="relative" ref={tgMenuRef}>
+            <div className="inline-flex items-center rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/25 shadow-sm transition-all">
+              <a
+                href={getTargetUrl()}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-sky-400 hover:text-sky-300 transition-colors"
+                title={`Открыть диалог в Telegram (${
+                  preferredClient === 'a'
+                    ? 'Web A'
+                    : preferredClient === 'app'
+                      ? 'Приложение'
+                      : 'Web K'
+                })`}
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">
+                  {preferredClient === 'a'
+                    ? 'В Telegram Web A'
+                    : preferredClient === 'app'
+                      ? 'В Telegram App'
+                      : 'В Telegram Web'}
+                </span>
+                <span className="sm:hidden">Web</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setTgMenuOpen((prev) => !prev)}
+                className="px-1.5 py-1.5 text-sky-400 hover:text-sky-300 border-l border-sky-500/20 hover:bg-sky-500/20 rounded-r-xl transition-colors"
+                title="Выбрать версию Telegram (Web K, Web A или Desktop)"
+                aria-label="Выбрать версию Telegram"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Выпадающее меню вариантов открытия */}
+            {tgMenuOpen && (
+              <div className="absolute right-0 mt-1.5 w-60 rounded-xl bg-slate-900/95 border border-slate-700/80 shadow-2xl py-1.5 z-50 backdrop-blur-md">
+                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-800/80">
+                  Открыть переписку
+                </div>
+
+                <a
+                  href={tgLinks.webK}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => handleSelectClient('k')}
+                  className="flex items-center justify-between px-3 py-2 text-xs text-slate-200 hover:bg-sky-500/15 hover:text-sky-300 transition-colors"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium">Telegram Web K</span>
+                    <span className="text-[10px] text-slate-400">web.telegram.org/k/#...</span>
+                  </div>
+                  {preferredClient === 'k' && <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
+                </a>
+
+                <a
+                  href={tgLinks.webA}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => handleSelectClient('a')}
+                  className="flex items-center justify-between px-3 py-2 text-xs text-slate-200 hover:bg-sky-500/15 hover:text-sky-300 transition-colors"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium">Telegram Web A</span>
+                    <span className="text-[10px] text-slate-400">web.telegram.org/a/#...</span>
+                  </div>
+                  {preferredClient === 'a' && <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
+                </a>
+
+                <a
+                  href={tgLinks.app}
+                  onClick={() => handleSelectClient('app')}
+                  className="flex items-center justify-between px-3 py-2 text-xs text-slate-200 hover:bg-sky-500/15 hover:text-sky-300 transition-colors"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium">Telegram Desktop / App</span>
+                    <span className="text-[10px] text-slate-400">tg://user?id=...</span>
+                  </div>
+                  {preferredClient === 'app' && <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
+                </a>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={refresh}
+            title="Обновить переписку"
+            className="p-2 text-slate-400 hover:text-indigo-300 hover:bg-slate-800/70 active:bg-slate-800 rounded-xl shrink-0 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Лента сообщений: плавный скролл, автоподгрузка истории вверх */}

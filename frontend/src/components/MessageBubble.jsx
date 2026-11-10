@@ -75,18 +75,32 @@ export default function MessageBubble({
           <span className={outgoing ? 'text-indigo-300 font-semibold' : 'text-emerald-400 font-semibold'}>
             {fromInfo.name}
             {fromInfo.username && (
-              <span className="text-[10px] font-normal opacity-80 ml-1">
+              <a
+                href={`https://web.telegram.org/k/#@${fromInfo.username}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-[10px] font-normal opacity-80 ml-1 hover:opacity-100 hover:underline transition-opacity"
+                title="Открыть в Telegram Web"
+              >
                 @{fromInfo.username}
-              </span>
+              </a>
             )}
           </span>
           <span className="text-slate-400 text-[10px]">➔</span>
           <span className={outgoing ? 'text-emerald-300/90 font-medium' : 'text-indigo-300 font-medium'}>
             {toInfo.name}
             {toInfo.username && (
-              <span className="text-[10px] font-normal opacity-80 ml-1">
+              <a
+                href={`https://web.telegram.org/k/#@${toInfo.username}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-[10px] font-normal opacity-80 ml-1 hover:opacity-100 hover:underline transition-opacity"
+                title="Открыть в Telegram Web"
+              >
                 @{toInfo.username}
-              </span>
+              </a>
             )}
           </span>
         </div>

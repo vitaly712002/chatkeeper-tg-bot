@@ -1,6 +1,6 @@
 import React from 'react';
-import { MessageSquare, User, Trash2, Users, ChevronDown } from 'lucide-react';
-import { parseTelegramName } from '../utils';
+import { MessageSquare, User, Trash2, Users, ChevronDown, ExternalLink } from 'lucide-react';
+import { parseTelegramName, getTelegramLinks } from '../utils';
 
 // Список диалогов выбранного пользователя / центральная колонка / мобильный главный экран.
 export default function ChatList({
@@ -99,6 +99,7 @@ export default function ChatList({
             const partner = chat.partner_name || chat.title || `Чат ${chat.chat_id}`;
             const ownerInfo = parseTelegramName(owner);
             const partnerInfo = parseTelegramName(partner);
+            const partnerLinks = getTelegramLinks(chat.chat_id, partnerInfo.username);
 
             return (
               <button
@@ -167,6 +168,16 @@ export default function ChatList({
                           {unread > 99 ? '99+' : unread}
                         </span>
                       )}
+                      <a
+                        href={partnerLinks.preferred}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1 text-slate-400 hover:text-sky-300 hover:bg-slate-700/60 rounded-md transition-colors"
+                        title="Открыть этот диалог в Telegram Web"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
                     </div>
                   </div>
                 </div>
