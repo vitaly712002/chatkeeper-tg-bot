@@ -51,6 +51,7 @@ func New(cfg config.Config, vault *service.Vault, b *bot.Bot, media *service.Med
 	mux.Handle("POST /api/chats/{chatId}/messages", s.auth(http.HandlerFunc(s.handleSendMessage)))
 	mux.Handle("POST /api/chats/{chatId}/read", s.auth(http.HandlerFunc(s.handleMarkChatRead)))
 	mux.Handle("POST /api/chats/{chatId}/media", s.auth(http.HandlerFunc(s.handleSendMedia)))
+	mux.Handle("POST /api/chats/{chatId}/send-to-owner", s.auth(http.HandlerFunc(s.handleSendContactToOwner)))
 	mux.Handle("DELETE /api/chats/{chatId}/messages/{messageId}", s.auth(http.HandlerFunc(s.handleDeleteMessage)))
 	mux.Handle("GET /api/messages/{id}/edits", s.auth(http.HandlerFunc(s.handleEdits)))
 	mux.Handle("POST /api/messages/{id}/forward", s.auth(http.HandlerFunc(s.handleForwardMessage)))

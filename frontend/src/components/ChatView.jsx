@@ -20,8 +20,9 @@ import {
   ExternalLink,
   ChevronDown,
   Check,
+  Smartphone,
 } from 'lucide-react';
-import { getChatMessages, sendMessage, sendMedia, deleteMessage, forwardMessage, markChatRead } from '../api';
+import { getChatMessages, sendMessage, sendMedia, deleteMessage, forwardMessage, markChatRead, sendContactToOwner } from '../api';
 import MessageBubble from './MessageBubble';
 import EditHistory from './EditHistory';
 import MediaModal from './MediaModal';
@@ -112,6 +113,33 @@ export default function ChatView({
     setPreferredClient(client);
     setPreferredTgClient(client);
     setTgMenuOpen(false);
+  };
+
+  // Отправка карточки собеседника в личный Telegram владельца бота
+  const [sendingToOwner, setSendingToOwner] = useState(false);
+  const [ownerSendFeedback, setOwnerSendFeedback] = useState(null);
+
+  const handleSendToOwner = async () => {
+    if (!chatId || sendingToOwner) return;
+    setSendingToOwner(true);
+    setOwnerSendFeedback(null);
+    try {
+      const res = await sendContactToOwner(chatId);
+      setOwnerSendFeedback({
+        type: 'success',
+        text: res.message || 'Карточка собеседника отправлена вам в личный Telegram!',
+      });
+      setTimeout(() => setOwnerSendFeedback(null), 6000);
+      setTgMenuOpen(false);
+    } catch (err) {
+      setOwnerSendFeedback({
+        type: 'error',
+        text: err.message || 'Ошибка отправки контакта',
+      });
+      setTimeout(() => setOwnerSendFeedback(null), 8000);
+    } finally {
+      setSendingToOwner(false);
+    }
   };
 
   const scrollContainerRef = useRef(null);
@@ -683,6 +711,11 @@ export default function ChatView({
   const partnerInfo = parseTelegramName(effectivePartner);
   const tgLinks = getTelegramLinks(chatId, partnerInfo.username);
 
+  const hasUsername = !!partnerInfo.username;
+  const tgButtonTitle = hasUsername
+    ? `Открыть @${partnerInfo.username} в Telegram (доступно с любого аккаунта)`
+    : `Открыть чат по ID ${chatId} в Telegram (требуется вход под аккаунтом владельца «${ownerInfo.name}», так как у собеседника нет @username)`;
+
   const getTargetUrl = () => {
     if (preferredClient === 'a') return tgLinks.webA;
     if (preferredClient === 'app') return tgLinks.app;
@@ -768,13 +801,7 @@ export default function ChatView({
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-sky-400 hover:text-sky-300 transition-colors"
-                title={`Открыть диалог в Telegram (${
-                  preferredClient === 'a'
-                    ? 'Web A'
-                    : preferredClient === 'app'
-                      ? 'Приложение'
-                      : 'Web K'
-                })`}
+                title={tgButtonTitle}
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">
@@ -843,9 +870,50 @@ export default function ChatView({
                   </div>
                   {preferredClient === 'app' && <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
                 </a>
+
+                {!hasUsername && (
+                  <div className="px-3 py-1.5 mt-1 border-t border-slate-800/80 text-[10px] text-amber-400/90 leading-tight bg-amber-500/5">
+                    У собеседника нет @username. Открытие по ID доступно только в аккаунте «{ownerInfo.name}».
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleSendToOwner}
+                  disabled={sendingToOwner}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs text-left text-indigo-300 hover:bg-indigo-500/15 hover:text-indigo-200 border-t border-slate-800/80 transition-colors"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-semibold flex items-center gap-1.5">
+                      <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+                      Прислать мне в Telegram
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Ссылка на профиль в личный чат с ботом
+                    </span>
+                  </div>
+                  {sendingToOwner && <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />}
+                </button>
               </div>
             )}
           </div>
+
+          {/* Кнопка отправки карточки собеседника в личный Telegram владельца бота */}
+          <button
+            type="button"
+            onClick={handleSendToOwner}
+            disabled={sendingToOwner}
+            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 active:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition-all shadow-sm shrink-0 disabled:opacity-50"
+            title="Бот отправит карточку собеседника и ссылку на его профиль в ваш личный Telegram"
+          >
+            {sendingToOwner ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+            ) : (
+              <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+            )}
+            <span className="hidden md:inline">Мне в Telegram</span>
+            <span className="md:hidden">Мне</span>
+          </button>
 
           <button
             onClick={refresh}
@@ -856,6 +924,33 @@ export default function ChatView({
           </button>
         </div>
       </div>
+
+      {/* Уведомление об отправке контакта в Telegram */}
+      {ownerSendFeedback && (
+        <div
+          className={`px-4 py-2 text-xs flex items-center justify-between gap-2 border-b shrink-0 animate-in fade-in duration-200 ${
+            ownerSendFeedback.type === 'success'
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+              : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {ownerSendFeedback.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{ownerSendFeedback.text}</span>
+          </div>
+          <button
+            onClick={() => setOwnerSendFeedback(null)}
+            className="p-1 hover:bg-white/10 rounded transition-colors text-slate-400 hover:text-white"
+            title="Закрыть"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Лента сообщений: плавный скролл, автоподгрузка истории вверх */}
       <div

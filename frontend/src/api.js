@@ -102,6 +102,24 @@ export async function cleanHistory() {
   return data;
 }
 
+// Отправка ссылки и карточки собеседника в личный Telegram владельца бота.
+export async function sendContactToOwner(chatId) {
+  const res = await fetch(`${API_BASE}/chats/${encodeURIComponent(chatId)}/send-to-owner`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+  if (res.status === 401) {
+    logout();
+    window.location.reload();
+    throw new Error('Требуется авторизация');
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || `Ошибка отправки (${res.status})`);
+  }
+  return data;
+}
+
 // Временная остановка / возобновление оповещений бота в Telegram.
 export async function toggleBotPause(connectionId = null, paused = undefined) {
   const payload = {};

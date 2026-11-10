@@ -194,3 +194,47 @@ func TestCleanHistoryValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestSendContactToOwnerValidation(t *testing.T) {
+	s := testServer()
+	token, err := s.issueToken("admin")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /api/chats/{chatId}/send-to-owner", s.auth(http.HandlerFunc(s.handleSendContactToOwner)))
+
+	// 1. Без токена -> 401
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/chats/12345/send-to-owner", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("ожидался 401, получен %d", w.Code)
+		}
+	}
+
+	// 2. Без OWNER_TELEGRAM_ID (по умолчанию 0) -> 400
+	{
+		req := httptest.NewRequest(http.MethodPost, "/api/chats/12345/send-to-owner", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("ожидался 400, получен %d", w.Code)
+		}
+	}
+
+	// 3. Некорректный chatId -> 400
+	{
+		s.cfg.OwnerTelegramID = 999999
+		req := httptest.NewRequest(http.MethodPost, "/api/chats/invalid/send-to-owner", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("ожидался 400, получен %d", w.Code)
+		}
+	}
+}

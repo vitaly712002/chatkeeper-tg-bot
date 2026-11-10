@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -577,4 +578,57 @@ func (s *Server) handleForwardMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, mv)
+}
+
+// POST /api/chats/{chatId}/send-to-owner — отправка ссылки и карточки собеседника в личный Telegram владельца бота.
+// ВАЖНО ДЛЯ БЕЗОПАСНОСТИ:
+// Это сообщение отправляется ИСКЛЮЧИТЕЛЬНО в личный чат между ботом и владельцем бота (cfg.OwnerTelegramID).
+// В рабочий чат Telegram Business, собеседникам или пользователям бота НИ ПРИ КАКИХ УСЛОВИЯХ НИЧЕГО НЕ ОТПРАВЛЯЕТСЯ.
+func (s *Server) handleSendContactToOwner(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.OwnerTelegramID == 0 {
+		writeError(w, http.StatusBadRequest, "OWNER_TELEGRAM_ID не настроен в .env. Укажите ваш цифровой Telegram ID в файле .env (например: OWNER_TELEGRAM_ID=123456789)")
+		return
+	}
+
+	chatID, err := strconv.ParseInt(r.PathValue("chatId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Некорректный chatId")
+		return
+	}
+
+	ownerName, partnerName := s.vault.GetChatParticipants(r.Context(), chatID)
+	if partnerName == "" {
+		partnerName = fmt.Sprintf("Пользователь %d", chatID)
+	}
+
+	// Формируем сообщение с inline text_mention (<a href="tg://user?id=...">).
+	// В Telegram это системное упоминание: при клике на имя в приложении Telegram открывается карточка профиля,
+	// даже если у пользователя нет @username.
+	text := fmt.Sprintf(
+		"👤 <b>Карточка собеседника из веб-панели</b>\n\n"+
+			"• <b>Собеседник:</b> <a href=\"tg://user?id=%d\">%s</a>\n"+
+			"• <b>Telegram ID:</b> <code>%d</code>\n",
+		chatID, html.EscapeString(partnerName),
+		chatID,
+	)
+	if ownerName != "" {
+		text += fmt.Sprintf("• <b>Диалог из аккаунта:</b> %s\n", html.EscapeString(ownerName))
+	}
+	text += "\n<i>💡 Нажмите на имя собеседника выше, чтобы открыть его профиль в приложении Telegram.</i>"
+
+	_, err = s.bot.SendMessage(r.Context(), &bot.SendMessageParams{
+		ChatID:    s.cfg.OwnerTelegramID,
+		Text:      text,
+		ParseMode: models.ParseModeHTML,
+	})
+	if err != nil {
+		s.log.Error("send-to-owner error", "owner_id", s.cfg.OwnerTelegramID, "err", err)
+		writeError(w, http.StatusInternalServerError, "Не удалось отправить сообщение в Telegram. Убедитесь, что вы нажали /start в боте со своего аккаунта.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "Карточка собеседника успешно отправлена вам в личные сообщения бота!",
+	})
 }
