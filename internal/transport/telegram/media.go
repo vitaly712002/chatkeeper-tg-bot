@@ -17,16 +17,15 @@ import (
 )
 
 // isDisappearingMedia проверяет, является ли сообщение исчезающим (view-once) медиа.
-// В Telegram исчезающие фото и видео в личных чатах имеют HasProtectedContent = true
+// В Telegram исчезающие фото, видео, голосовые и кружки (video_note) в личных чатах имеют HasProtectedContent = true
 // (так как Telegram запрещает их пересылку и сохранение).
-// Обычные сообщения, кружки (video_note), обычные фото/видео, стикеры имеют HasProtectedContent = false.
 func isDisappearingMedia(m *models.Message) bool {
 	if m == nil || !m.HasProtectedContent {
 		return false
 	}
-	// Исчезающими медиа могут быть только фото или видео (и одноразовые голосовые).
-	// Кружки (video_note), анимации/гифки, стикеры, документы исчезающими быть не могут.
-	return len(m.Photo) > 0 || m.Video != nil || m.Voice != nil
+	// Исчезающими медиа могут быть фото, видео, одноразовые голосовые или видеосообщения (кружочки).
+	// Анимации/гифки, стикеры, документы исчезающими быть не могут.
+	return len(m.Photo) > 0 || m.Video != nil || m.Voice != nil || m.VideoNote != nil
 }
 
 // tryRescueMedia пытается "спасти" исчезающее медиа (из самого сообщения или из reply).
@@ -49,8 +48,8 @@ func (r *Runner) tryRescueMedia(ctx context.Context, conn gen.BusinessConnection
 		return // нет медиа — спасать нечего
 	}
 
-	// Разрешаем только исчезающие фото, видео и голосовые (кружки, стикеры и т.д. отсекаются)
-	if media.kind != "photo" && media.kind != "video" && media.kind != "voice" {
+	// Разрешаем только исчезающие фото, видео, голосовые и кружочки (стикеры, документы и т.д. отсекаются)
+	if media.kind != "photo" && media.kind != "video" && media.kind != "voice" && media.kind != "video_note" {
 		return
 	}
 
@@ -172,7 +171,7 @@ func (r *Runner) sendRescuedMedia(ctx context.Context, chatID int64, media media
 	switch media.kind {
 	case "photo":
 		_, err = r.bot.SendPhoto(ctx, &bot.SendPhotoParams{ChatID: chatID, Photo: input, Caption: caption})
-	case "video":
+	case "video", "video_note":
 		_, err = r.bot.SendVideo(ctx, &bot.SendVideoParams{ChatID: chatID, Video: input, Caption: caption})
 	case "voice":
 		_, err = r.bot.SendVoice(ctx, &bot.SendVoiceParams{ChatID: chatID, Voice: input, Caption: caption})
