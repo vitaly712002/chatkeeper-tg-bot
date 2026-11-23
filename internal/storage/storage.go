@@ -173,5 +173,71 @@ func (s *Store) GetChatParticipants(ctx context.Context, chatID int64) (owner st
 	return owner, partner
 }
 
+// ListMessagesFiltered возвращает сообщения с возможностью фильтрации по типу медиа,
+// подключению и пагинации (before).
+func (s *Store) ListMessagesFiltered(ctx context.Context, connectionID string, chatID int64, mediaType string, limit int32, before int64) ([]gen.ListRecentMessagesRow, error) {
+	query := `
+SELECT
+    tm.id, tm.message_id, tm.sender_name, COALESCE(tm.recipient_name, '') AS recipient_name, tm.is_outgoing, tm.encrypted_text,
+    tm.media_type, tm.file_id, tm.sent_at, tm.deleted_at, tm.is_read,
+    tm.reply_to_message_id, tm.reply_to_sender_name, tm.reply_to_text,
+    EXISTS(SELECT 1 FROM message_edits e WHERE e.message_ref_id = tm.id) AS edited
+FROM tracked_messages tm
+WHERE tm.chat_id = $1`
+
+	args := []any{chatID}
+	argIdx := 2
+
+	if connectionID != "" {
+		query += fmt.Sprintf(" AND tm.connection_id = $%d", argIdx)
+		args = append(args, connectionID)
+		argIdx++
+	}
+	if mediaType != "" {
+		query += fmt.Sprintf(" AND tm.media_type = $%d", argIdx)
+		args = append(args, mediaType)
+		argIdx++
+	}
+	if before > 0 {
+		query += fmt.Sprintf(" AND tm.id < $%d", argIdx)
+		args = append(args, before)
+		argIdx++
+	}
+	query += fmt.Sprintf(" ORDER BY tm.id DESC LIMIT $%d", argIdx)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []gen.ListRecentMessagesRow
+	for rows.Next() {
+		var i gen.ListRecentMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.SenderName,
+			&i.RecipientName,
+			&i.IsOutgoing,
+			&i.EncryptedText,
+			&i.MediaType,
+			&i.FileID,
+			&i.SentAt,
+			&i.DeletedAt,
+			&i.IsRead,
+			&i.ReplyToMessageID,
+			&i.ReplyToSenderName,
+			&i.ReplyToText,
+			&i.Edited,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, nil
+}
+
 // Чтобы линтер не ругался на неиспользуемый импорт pgx в некоторых сборках.
 var _ = pgx.ErrNoRows

@@ -49,8 +49,8 @@ export default function App() {
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
         setUsers(list);
-        if (list.length > 0 && !selectedConnectionId) {
-          setSelectedConnectionId(list[0].connection_id);
+        if (list.length > 0) {
+          setSelectedConnectionId((prev) => prev || list[0].connection_id);
         }
       })
       .catch(() => setUsers([]))
@@ -221,26 +221,6 @@ export default function App() {
     };
   }, [user, handleWsEvent]);
 
-  const handleLogout = () => {
-    logout();
-    setUser(null);
-    setUsers([]);
-    setSelectedConnectionId(null);
-    setChats([]);
-    setSelectedChatId(null);
-    setStats(null);
-  };
-
-  if (!user) {
-    return <LoginPage onLoginSuccess={(u) => setUser(u)} />;
-  }
-
-  const selectedUser = users.find((u) => u.connection_id === selectedConnectionId);
-  const selectedChat = chats.find((c) => String(c.chat_id) === String(selectedChatId));
-  const isBotPaused = selectedUser
-    ? !!selectedUser.is_paused
-    : users.length > 0 && users.every((u) => u.is_paused);
-
   const handleSelectChat = useCallback((chatId) => {
     setSelectedChatId(chatId);
   }, []);
@@ -257,6 +237,22 @@ export default function App() {
       getUsers().then((d) => { if (Array.isArray(d)) setUsers(d); }).catch(() => {});
     }
   }, []);
+
+  const handleLogout = () => {
+    logout();
+    setUser(null);
+    setUsers([]);
+    setSelectedConnectionId(null);
+    setChats([]);
+    setSelectedChatId(null);
+    setStats(null);
+  };
+
+  const selectedUser = users.find((u) => u.connection_id === selectedConnectionId);
+  const selectedChat = chats.find((c) => String(c.chat_id) === String(selectedChatId));
+  const isBotPaused = selectedUser
+    ? !!selectedUser.is_paused
+    : users.length > 0 && users.every((u) => u.is_paused);
 
   const handleTogglePause = async () => {
     try {
@@ -284,6 +280,10 @@ export default function App() {
       getUsers().then((d) => { if (Array.isArray(d)) setUsers(d); }).catch(() => {});
     }
   };
+
+  if (!user) {
+    return <LoginPage onLoginSuccess={(u) => setUser(u)} />;
+  }
 
   return (
     <div className="h-dvh bg-slate-950 text-slate-100 flex flex-col overflow-hidden">

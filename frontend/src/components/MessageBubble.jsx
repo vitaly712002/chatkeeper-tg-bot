@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   Trash2,
   Pencil,
@@ -35,6 +35,7 @@ export default function MessageBubble({
   onForward,
   onDelete,
   onScrollToMessage,
+  autoLoadMedia = false,
 }) {
   const [copied, setCopied] = useState(false);
   const deleted = !!msg.deleted_at;
@@ -130,7 +131,12 @@ export default function MessageBubble({
         )}
 
         {msg.media_type && msg.file_id && (
-          <MediaView type={msg.media_type} fileId={msg.file_id} onPreviewMedia={onPreviewMedia} />
+          <MediaView
+            type={msg.media_type}
+            fileId={msg.file_id}
+            onPreviewMedia={onPreviewMedia}
+            autoLoad={autoLoadMedia}
+          />
         )}
 
         {msg.text && (
@@ -231,11 +237,18 @@ export default function MessageBubble({
 }
 
 // Отображение медиа. По умолчанию ленивое: показывается плашка с кнопкой просмотра,
-// и только при клике медиа запрашивается с сервера.
-function MediaView({ type, fileId, onPreviewMedia }) {
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [loading, setLoading] = useState(false);
+// и только при клике медиа запрашивается с сервера (если не передан autoLoad=true).
+function MediaView({ type, fileId, onPreviewMedia, autoLoad = false }) {
+  const [isLoaded, setIsLoaded] = useState(autoLoad);
+  const [loading, setLoading] = useState(autoLoad);
   const url = getMediaUrl(fileId);
+
+  React.useEffect(() => {
+    if (autoLoad && !isLoaded) {
+      setIsLoaded(true);
+      setLoading(true);
+    }
+  }, [autoLoad, isLoaded]);
 
   if (!isLoaded) {
     const Icon = iconFor(type);
@@ -295,6 +308,11 @@ function MediaView({ type, fileId, onPreviewMedia }) {
         <img
           src={url}
           alt={labelFor(type)}
+          ref={(el) => {
+            if (el && el.complete && loading) {
+              setLoading(false);
+            }
+          }}
           onLoad={() => setLoading(false)}
           onError={() => setLoading(false)}
           className={`rounded-xl max-h-72 w-auto object-cover hover:opacity-95 transition-all shadow-md group-hover:ring-2 group-hover:ring-indigo-500/50 ${

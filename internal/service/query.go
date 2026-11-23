@@ -155,7 +155,21 @@ func (v *Vault) ListChats(ctx context.Context, connectionID string) ([]ChatSumma
 
 // ListMessages возвращает сообщения чата в хронологическом порядке (старые сверху).
 // before=0 — последние сообщения; before>0 — более ранние, чем это id.
-func (v *Vault) ListMessages(ctx context.Context, connectionID string, chatID int64, limit int32, before int64) ([]MessageView, error) {
+// mediaType — опциональная фильтрация по типу медиа (например, "photo").
+func (v *Vault) ListMessages(ctx context.Context, connectionID string, chatID int64, mediaType string, limit int32, before int64) ([]MessageView, error) {
+	if mediaType != "" {
+		rows, err := v.store.ListMessagesFiltered(ctx, connectionID, chatID, mediaType, limit, before)
+		if err != nil {
+			return nil, err
+		}
+		views := make([]MessageView, 0, len(rows))
+		for _, r := range rows {
+			views = append(views, v.toMessageView(r))
+		}
+		reverse(views)
+		return views, nil
+	}
+
 	var (
 		views []MessageView
 		err   error

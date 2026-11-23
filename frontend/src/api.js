@@ -159,10 +159,12 @@ export function getChats(connectionId = null) {
 
 // Сообщения конкретного чата. before — курсор пагинации (id самого старого
 // загруженного сообщения), чтобы подгружать историю вверх.
-export function getChatMessages(chatId, { connectionId = null, limit = 50, before = null } = {}) {
+// mediaType — фильтрация по типу медиа (например, "photo").
+export function getChatMessages(chatId, { connectionId = null, limit = 50, before = null, mediaType = null } = {}) {
   let path = `/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}`;
   if (connectionId) path += `&connection_id=${encodeURIComponent(connectionId)}`;
   if (before != null) path += `&before=${before}`;
+  if (mediaType != null) path += `&media_type=${encodeURIComponent(mediaType)}`;
   return apiGet(path);
 }
 

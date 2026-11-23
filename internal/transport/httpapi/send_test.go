@@ -238,3 +238,35 @@ func TestSendContactToOwnerValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleMessagesValidation(t *testing.T) {
+	s := testServer()
+	token, err := s.issueToken("admin")
+	if err != nil {
+		t.Fatalf("issueToken: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /api/chats/{chatId}/messages", s.auth(http.HandlerFunc(s.handleMessages)))
+
+	// 1. Без токена -> 401
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/chats/123/messages", nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("ожидался 401, получен %d", w.Code)
+		}
+	}
+
+	// 2. Некорректный chatId -> 400
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/chats/abc/messages?media_type=photo", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("ожидался 400 для некорректного chatId, получен %d", w.Code)
+		}
+	}
+}

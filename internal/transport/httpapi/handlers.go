@@ -144,7 +144,7 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, chats)
 }
 
-// GET /api/chats/{chatId}/messages?connection_id=&limit=&before= — лента сообщений чата.
+// GET /api/chats/{chatId}/messages?connection_id=&limit=&before=&media_type= — лента сообщений чата.
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	chatID, err := strconv.ParseInt(r.PathValue("chatId"), 10, 64)
 	if err != nil {
@@ -152,13 +152,17 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connID := r.URL.Query().Get("connection_id")
+	mediaType := r.URL.Query().Get("media_type")
+	if mediaType == "" {
+		mediaType = r.URL.Query().Get("type")
+	}
 	limit := parseIntDefault(r.URL.Query().Get("limit"), 50)
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	before := parseIntDefault(r.URL.Query().Get("before"), 0)
 
-	msgs, err := s.vault.ListMessages(r.Context(), connID, chatID, int32(limit), int64(before))
+	msgs, err := s.vault.ListMessages(r.Context(), connID, chatID, mediaType, int32(limit), int64(before))
 	if err != nil {
 		s.log.Error("messages", "err", err)
 		writeError(w, http.StatusInternalServerError, "Ошибка получения сообщений")

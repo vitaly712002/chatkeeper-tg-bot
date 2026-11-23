@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import {
   MessageSquare,
+  Image as ImageIcon,
   RefreshCw,
   ArrowLeft,
   Loader2,
@@ -69,6 +70,17 @@ export default function ChatView({
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [previewMedia, setPreviewMedia] = useState(null);
+
+  // Вкладка диалога: 'messages' (все сообщения) или 'media' (только фото)
+  const [chatTab, setChatTab] = useState('messages');
+
+  // Состояние вкладки Медиа для текущего чата
+  const [mediaMessages, setMediaMessages] = useState([]);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaLoadingOlder, setMediaLoadingOlder] = useState(false);
+  const [mediaHasMore, setMediaHasMore] = useState(false);
+  const [mediaLoaded, setMediaLoaded] = useState(false);
+  const [mediaError, setMediaError] = useState('');
 
   // Состояние отправки сообщений, файлов и голосовых
   const [inputText, setInputText] = useState('');
@@ -172,6 +184,28 @@ export default function ChatView({
     messagesRef.current = messages;
   }, [messages]);
 
+  // Рефы для вкладки Медиа
+  const mediaScrollContainerRef = useRef(null);
+  const mediaTopSentinelRef = useRef(null);
+  const mediaBottomRef = useRef(null);
+  const mediaLoadingOlderRef = useRef(false);
+  const mediaPendingScrollAdjustRef = useRef(null);
+
+  const mediaMessagesRef = useRef(mediaMessages);
+  useEffect(() => {
+    mediaMessagesRef.current = mediaMessages;
+  }, [mediaMessages]);
+
+  const mediaHasMoreRef = useRef(mediaHasMore);
+  useEffect(() => {
+    mediaHasMoreRef.current = mediaHasMore;
+  }, [mediaHasMore]);
+
+  const mediaLoadingRef = useRef(mediaLoading);
+  useEffect(() => {
+    mediaLoadingRef.current = mediaLoading;
+  }, [mediaLoading]);
+
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioStreamRef = useRef(null);
@@ -201,6 +235,15 @@ export default function ChatView({
     setPendingFile(null);
     setInputText('');
     setForwardMsg(null);
+
+    // Сброс состояния медиа для нового выбранного чата
+    setMediaMessages([]);
+    setMediaLoaded(false);
+    setMediaHasMore(false);
+    setMediaError('');
+    setMediaLoading(false);
+    mediaLoadingOlderRef.current = false;
+    mediaPendingScrollAdjustRef.current = null;
 
     if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
     if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -250,6 +293,38 @@ export default function ChatView({
     };
   }, [chatId, connectionId]);
 
+  // Загрузка фото для вкладки «Медиа»
+  const loadMedia = useCallback(async () => {
+    if (!chatId) return;
+    setMediaLoading(true);
+    setMediaError('');
+    try {
+      const data = await getChatMessages(chatId, {
+        connectionId,
+        limit: PAGE,
+        mediaType: 'photo',
+      });
+      const list = Array.isArray(data) ? data : [];
+      setMediaMessages(list);
+      setMediaHasMore(list.length >= PAGE);
+      setMediaLoaded(true);
+      setTimeout(() => {
+        mediaBottomRef.current?.scrollIntoView({ behavior: 'auto' });
+      }, 30);
+    } catch (err) {
+      setMediaError(err.message || 'Ошибка загрузки медиа');
+    } finally {
+      setMediaLoading(false);
+    }
+  }, [chatId, connectionId]);
+
+  // При открытии вкладки «Медиа» загружаем фото, если они ещё не были загружены для этого чата
+  useEffect(() => {
+    if (chatTab === 'media' && !mediaLoaded && !mediaLoading && chatId) {
+      loadMedia();
+    }
+  }, [chatTab, mediaLoaded, mediaLoading, chatId, loadMedia]);
+
   // 2. Обработка входящих событий WebSocket в реальном времени
   useEffect(() => {
     if (!lastWsEvent || !chatId) return;
@@ -271,6 +346,19 @@ export default function ChatView({
         if (isDuplicate) return prev;
         return [...prev, newMsg];
       });
+
+      // Если новое сообщение — фото, также добавляем во вкладку Медиа
+      if (newMsg.media_type === 'photo') {
+        setMediaMessages((prev) => {
+          const isDuplicate = prev.some(
+            (m) =>
+              (newMsg.id && Number(m.id) === Number(newMsg.id)) ||
+              (Number(m.message_id) === Number(newMsg.message_id) && Number(m.message_id) !== 0)
+          );
+          if (isDuplicate) return prev;
+          return [...prev, newMsg];
+        });
+      }
 
       // Если пришло входящее сообщение, когда чат уже открыт перед глазами пользователя,
       // помечаем его прочитанным сразу
@@ -301,10 +389,24 @@ export default function ChatView({
             : m
         )
       );
+      setMediaMessages((prev) =>
+        prev.map((m) =>
+          Number(m.message_id) === Number(message_id)
+            ? { ...m, text: new_text, edited: true }
+            : m
+        )
+      );
     } else if (type === 'messages_deleted') {
       const { message_ids, deleted_at } = data;
       const idsSet = new Set((message_ids || []).map(Number));
       setMessages((prev) =>
+        prev.map((m) =>
+          idsSet.has(Number(m.message_id))
+            ? { ...m, deleted_at: deleted_at || new Date().toISOString() }
+            : m
+        )
+      );
+      setMediaMessages((prev) =>
         prev.map((m) =>
           idsSet.has(Number(m.message_id))
             ? { ...m, deleted_at: deleted_at || new Date().toISOString() }
@@ -398,6 +500,98 @@ export default function ChatView({
     return () => observer.disconnect();
   }, [loadOlder]);
 
+  // Сохранение позиции скролла при автоподгрузке фото вверх во вкладке «Медиа»
+  useLayoutEffect(() => {
+    if (mediaPendingScrollAdjustRef.current && mediaScrollContainerRef.current) {
+      const { prevScrollHeight, prevScrollTop } = mediaPendingScrollAdjustRef.current;
+      const container = mediaScrollContainerRef.current;
+      const newScrollHeight = container.scrollHeight;
+      const diff = newScrollHeight - prevScrollHeight;
+      if (diff > 0) {
+        container.scrollTop = prevScrollTop + diff;
+      }
+      mediaPendingScrollAdjustRef.current = null;
+    }
+  }, [mediaMessages]);
+
+  // Подгрузка более ранних фото (при скролле вверх во вкладке «Медиа»)
+  const loadOlderMedia = useCallback(async () => {
+    if (
+      mediaLoadingOlderRef.current ||
+      !mediaHasMoreRef.current ||
+      mediaMessagesRef.current.length === 0 ||
+      mediaLoadingRef.current
+    ) {
+      return;
+    }
+
+    const oldestId = mediaMessagesRef.current[0].id;
+    mediaLoadingOlderRef.current = true;
+    setMediaLoadingOlder(true);
+
+    try {
+      const older = await getChatMessages(chatId, {
+        connectionId,
+        limit: PAGE,
+        before: oldestId,
+        mediaType: 'photo',
+      });
+      const list = Array.isArray(older) ? older : [];
+      if (list.length > 0) {
+        const existingIds = new Set(mediaMessagesRef.current.map((m) => m.id));
+        const fresh = list.filter((m) => !existingIds.has(m.id));
+        if (fresh.length > 0) {
+          const container = mediaScrollContainerRef.current;
+          if (container) {
+            mediaPendingScrollAdjustRef.current = {
+              prevScrollHeight: container.scrollHeight,
+              prevScrollTop: container.scrollTop,
+            };
+          }
+          setMediaMessages((prev) => [...fresh, ...prev]);
+        }
+      }
+      setMediaHasMore(list.length >= PAGE);
+    } catch (e) {
+      setMediaError(e.message || 'Ошибка загрузки истории медиа');
+      mediaPendingScrollAdjustRef.current = null;
+    } finally {
+      setMediaLoadingOlder(false);
+      mediaLoadingOlderRef.current = false;
+    }
+  }, [chatId, connectionId]);
+
+  // IntersectionObserver для верхнего сенсора вкладки «Медиа»
+  useEffect(() => {
+    if (chatTab !== 'media') return;
+    const sentinel = mediaTopSentinelRef.current;
+    const container = mediaScrollContainerRef.current;
+    if (!sentinel || !container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (
+          entry.isIntersecting &&
+          mediaHasMoreRef.current &&
+          !mediaLoadingOlderRef.current &&
+          !mediaLoadingRef.current &&
+          mediaMessagesRef.current.length > 0
+        ) {
+          loadOlderMedia();
+        }
+      },
+      {
+        root: container,
+        rootMargin: '120px 0px 0px 0px',
+        threshold: 0.05,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [chatTab, loadOlderMedia]);
+
   // 6. Обработка прокрутки: отслеживание низа
   const handleScroll = (e) => {
     const target = e.currentTarget;
@@ -406,21 +600,36 @@ export default function ChatView({
     setShowScrollBottom(distanceFromBottom > 280);
   };
 
+  const handleMediaScroll = (e) => {
+    const target = e.currentTarget;
+    const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    setShowScrollBottom(distanceFromBottom > 280);
+  };
+
   const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatTab === 'media') {
+      mediaBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   const scrollToMessage = useCallback((targetMessageId) => {
     if (!targetMessageId) return;
-    const targetEl = document.getElementById(`msg-${targetMessageId}`);
-    if (targetEl) {
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      targetEl.classList.add('ring-2', 'ring-indigo-400', 'bg-indigo-500/20');
-      setTimeout(() => {
-        targetEl.classList.remove('ring-2', 'ring-indigo-400', 'bg-indigo-500/20');
-      }, 1800);
+    if (chatTab !== 'messages') {
+      setChatTab('messages');
     }
-  }, []);
+    setTimeout(() => {
+      const targetEl = document.getElementById(`msg-${targetMessageId}`);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        targetEl.classList.add('ring-2', 'ring-indigo-400', 'bg-indigo-500/20');
+        setTimeout(() => {
+          targetEl.classList.remove('ring-2', 'ring-indigo-400', 'bg-indigo-500/20');
+        }, 1800);
+      }
+    }, chatTab !== 'messages' ? 120 : 0);
+  }, [chatTab]);
 
   const refresh = () => {
     setMessages([]);
@@ -434,6 +643,10 @@ export default function ChatView({
       })
       .catch((e) => setError(e.message || 'Ошибка загрузки'))
       .finally(() => setLoading(false));
+
+    if (mediaLoaded || chatTab === 'media') {
+      loadMedia();
+    }
   };
 
   // --- Отправка сообщений, файлов и голосовых ---
@@ -471,6 +684,12 @@ export default function ChatView({
           if (prev.some((m) => m.id === res.id || m.message_id === res.message_id)) return prev;
           return [...prev, res];
         });
+        if (res.media_type === 'photo') {
+          setMediaMessages((prev) => {
+            if (prev.some((m) => m.id === res.id || m.message_id === res.message_id)) return prev;
+            return [...prev, res];
+          });
+        }
       }
 
       setInputText('');
@@ -640,6 +859,13 @@ export default function ChatView({
       await deleteMessage(chatId, deleteConfirmMsg.message_id, { connectionId });
       // Помечаем удалённым локально
       setMessages((prev) =>
+        prev.map((m) =>
+          Number(m.message_id) === Number(deleteConfirmMsg.message_id)
+            ? { ...m, deleted_at: new Date().toISOString() }
+            : m
+        )
+      );
+      setMediaMessages((prev) =>
         prev.map((m) =>
           Number(m.message_id) === Number(deleteConfirmMsg.message_id)
             ? { ...m, deleted_at: new Date().toISOString() }
@@ -952,88 +1178,223 @@ export default function ChatView({
         </div>
       )}
 
-      {/* Лента сообщений: плавный скролл, автоподгрузка истории вверх */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        style={{ overflowAnchor: 'none' }}
-        className="flex-1 overflow-y-auto px-2.5 sm:px-4 py-3 sm:py-4 space-y-2"
-      >
-        {/* Сенсор верхней границы для автоматического loading list */}
-        <div ref={topSentinelRef} className="h-1 w-full pointer-events-none" />
+      {/* Вкладки чата: Сообщения / Медиа */}
+      <div className="flex items-center justify-between px-3 sm:px-5 py-2 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur shrink-0">
+        <div className="flex items-center gap-1.5 bg-slate-950/70 p-1 rounded-xl border border-slate-800/90 shadow-inner">
+          <button
+            type="button"
+            onClick={() => setChatTab('messages')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              chatTab === 'messages'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-1 ring-indigo-400/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 active:scale-95'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Сообщения</span>
+            {messages.length > 0 && (
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  chatTab === 'messages'
+                    ? 'bg-indigo-700/80 text-indigo-100'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {messages.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setChatTab('media')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              chatTab === 'media'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-1 ring-indigo-400/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 active:scale-95'
+            }`}
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+            <span>Медиа</span>
+            {mediaLoaded && (
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  chatTab === 'media'
+                    ? 'bg-indigo-700/80 text-indigo-100'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {mediaMessages.length}
+              </span>
+            )}
+          </button>
+        </div>
 
-        {/* Анимированный индикатор фоновой подгрузки истории при скролле вверх */}
-        {loadingOlder && (
-          <div className="py-2.5 flex items-center justify-center gap-2 text-xs text-indigo-300 bg-slate-900/60 rounded-xl my-2 border border-slate-800 animate-in fade-in duration-150">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-            <span>Загрузка предыдущих сообщений…</span>
-          </div>
-        )}
-
-        {/* Начало переписки, когда все сообщения подтянуты */}
-        {!hasMore && messages.length > 0 && !loading && (
-          <div className="text-center text-[11px] text-slate-500 py-3 select-none flex items-center justify-center gap-2">
-            <span className="w-8 h-[1px] bg-slate-800" />
-            <span>Начало переписки</span>
-            <span className="w-8 h-[1px] bg-slate-800" />
-          </div>
-        )}
-
-        {error && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs rounded-xl text-center">
-            {error}
-          </div>
-        )}
-
-        {loading && (
-          <div className="py-12 flex flex-col items-center justify-center gap-2 text-xs text-slate-400">
-            <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
-            <span>Загрузка сообщений…</span>
-          </div>
-        )}
-
-        {!loading && messages.length === 0 && !error && (
-          <div className="py-16 text-center text-xs text-slate-500">
-            В этом чате пока нет сообщений. Напишите первое сообщение ниже!
-          </div>
-        )}
-
-        {messages.map((m) => {
-          const isFirstUnread = firstUnreadId && m.id === firstUnreadId;
-          return (
-            <React.Fragment key={m.id || m.message_id}>
-              {isFirstUnread && (
-                <div
-                  ref={firstUnreadRef}
-                  className="flex items-center justify-center my-3.5 py-1 select-none animate-in fade-in"
-                >
-                  <div className="flex-1 h-px bg-indigo-500/30" />
-                  <span className="mx-3 text-[11px] font-semibold text-indigo-300 bg-indigo-950/80 border border-indigo-500/40 px-3 py-1 rounded-full shadow-sm flex items-center gap-1.5 backdrop-blur">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                    Непрочитанные сообщения
-                  </span>
-                  <div className="flex-1 h-px bg-indigo-500/30" />
-                </div>
-              )}
-              <div id={`msg-${m.message_id}`} className="transition-all duration-300 rounded-2xl">
-                <MessageBubble
-                  msg={m}
-                  onShowEdits={setEditTarget}
-                  onPreviewMedia={setPreviewMedia}
-                  fallbackOwner={effectiveOwner}
-                  fallbackPartner={effectivePartner}
-                  onReply={(msg) => setReplyTo(msg)}
-                  onForward={(msg) => setForwardMsg(msg)}
-                  onDelete={(msg) => setDeleteConfirmMsg(msg)}
-                  onScrollToMessage={scrollToMessage}
-                />
-              </div>
-            </React.Fragment>
-          );
-        })}
-
-        <div ref={bottomRef} className="h-0.5" />
+        <div className="text-[11px] text-slate-400 hidden sm:flex items-center gap-1.5">
+          {chatTab === 'media' ? (
+            <span className="text-slate-400">Только фото диалога</span>
+          ) : (
+            <span className="text-slate-500">Все сообщения диалога</span>
+          )}
+        </div>
       </div>
+
+      {/* Лента сообщений: плавный скролл, автоподгрузка истории вверх */}
+      {chatTab === 'messages' && (
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          style={{ overflowAnchor: 'none' }}
+          className="flex-1 overflow-y-auto px-2.5 sm:px-4 py-3 sm:py-4 space-y-2"
+        >
+          {/* Сенсор верхней границы для автоматического loading list */}
+          <div ref={topSentinelRef} className="h-1 w-full pointer-events-none" />
+
+          {/* Анимированный индикатор фоновой подгрузки истории при скролле вверх */}
+          {loadingOlder && (
+            <div className="py-2.5 flex items-center justify-center gap-2 text-xs text-indigo-300 bg-slate-900/60 rounded-xl my-2 border border-slate-800 animate-in fade-in duration-150">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+              <span>Загрузка предыдущих сообщений…</span>
+            </div>
+          )}
+
+          {/* Начало переписки, когда все сообщения подтянуты */}
+          {!hasMore && messages.length > 0 && !loading && (
+            <div className="text-center text-[11px] text-slate-500 py-3 select-none flex items-center justify-center gap-2">
+              <span className="w-8 h-[1px] bg-slate-800" />
+              <span>Начало переписки</span>
+              <span className="w-8 h-[1px] bg-slate-800" />
+            </div>
+          )}
+
+          {error && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs rounded-xl text-center">
+              {error}
+            </div>
+          )}
+
+          {loading && (
+            <div className="py-12 flex flex-col items-center justify-center gap-2 text-xs text-slate-400">
+              <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+              <span>Загрузка сообщений…</span>
+            </div>
+          )}
+
+          {!loading && messages.length === 0 && !error && (
+            <div className="py-16 text-center text-xs text-slate-500">
+              В этом чате пока нет сообщений. Напишите первое сообщение ниже!
+            </div>
+          )}
+
+          {messages.map((m) => {
+            const isFirstUnread = firstUnreadId && m.id === firstUnreadId;
+            return (
+              <React.Fragment key={m.id || m.message_id}>
+                {isFirstUnread && (
+                  <div
+                    ref={firstUnreadRef}
+                    className="flex items-center justify-center my-3.5 py-1 select-none animate-in fade-in"
+                  >
+                    <div className="flex-1 h-px bg-indigo-500/30" />
+                    <span className="mx-3 text-[11px] font-semibold text-indigo-300 bg-indigo-950/80 border border-indigo-500/40 px-3 py-1 rounded-full shadow-sm flex items-center gap-1.5 backdrop-blur">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      Непрочитанные сообщения
+                    </span>
+                    <div className="flex-1 h-px bg-indigo-500/30" />
+                  </div>
+                )}
+                <div id={`msg-${m.message_id}`} className="transition-all duration-300 rounded-2xl">
+                  <MessageBubble
+                    msg={m}
+                    onShowEdits={setEditTarget}
+                    onPreviewMedia={setPreviewMedia}
+                    fallbackOwner={effectiveOwner}
+                    fallbackPartner={effectivePartner}
+                    onReply={(msg) => setReplyTo(msg)}
+                    onForward={(msg) => setForwardMsg(msg)}
+                    onDelete={(msg) => setDeleteConfirmMsg(msg)}
+                    onScrollToMessage={scrollToMessage}
+                  />
+                </div>
+              </React.Fragment>
+            );
+          })}
+
+          <div ref={bottomRef} className="h-0.5" />
+        </div>
+      )}
+
+      {/* Лента фото (Вкладка Медиа): только фото этого чата, то же отображение как в чате */}
+      {chatTab === 'media' && (
+        <div
+          ref={mediaScrollContainerRef}
+          onScroll={handleMediaScroll}
+          style={{ overflowAnchor: 'none' }}
+          className="flex-1 overflow-y-auto px-2.5 sm:px-4 py-3 sm:py-4 space-y-2"
+        >
+          {/* Сенсор верхней границы для автоматической подгрузки фото */}
+          <div ref={mediaTopSentinelRef} className="h-1 w-full pointer-events-none" />
+
+          {/* Индикатор загрузки старых фото */}
+          {mediaLoadingOlder && (
+            <div className="py-2.5 flex items-center justify-center gap-2 text-xs text-indigo-300 bg-slate-900/60 rounded-xl my-2 border border-slate-800 animate-in fade-in duration-150">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+              <span>Загрузка предыдущих фото…</span>
+            </div>
+          )}
+
+          {!mediaHasMore && mediaMessages.length > 0 && !mediaLoading && (
+            <div className="text-center text-[11px] text-slate-500 py-3 select-none flex items-center justify-center gap-2">
+              <span className="w-8 h-[1px] bg-slate-800" />
+              <span>Все фото диалога загружены</span>
+              <span className="w-8 h-[1px] bg-slate-800" />
+            </div>
+          )}
+
+          {mediaError && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs rounded-xl text-center">
+              {mediaError}
+            </div>
+          )}
+
+          {mediaLoading && (
+            <div className="py-12 flex flex-col items-center justify-center gap-2 text-xs text-slate-400">
+              <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+              <span>Загрузка фотографий…</span>
+            </div>
+          )}
+
+          {!mediaLoading && mediaMessages.length === 0 && !mediaError && (
+            <div className="py-16 text-center text-xs text-slate-500 flex flex-col items-center justify-center">
+              <div className="w-12 h-12 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-400 mb-3 shadow-inner">
+                <ImageIcon className="w-6 h-6" />
+              </div>
+              <p className="font-semibold text-slate-300 mb-1 text-sm">В этом чате пока нет фотографий</p>
+              <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                Все фотографии, отправленные или полученные в этой переписке, автоматически появятся здесь.
+              </p>
+            </div>
+          )}
+
+          {mediaMessages.map((m) => (
+            <div id={`media-msg-${m.message_id}`} key={m.id || m.message_id} className="transition-all duration-300 rounded-2xl">
+              <MessageBubble
+                msg={m}
+                autoLoadMedia={true}
+                onShowEdits={setEditTarget}
+                onPreviewMedia={setPreviewMedia}
+                fallbackOwner={effectiveOwner}
+                fallbackPartner={effectivePartner}
+                onReply={(msg) => setReplyTo(msg)}
+                onForward={(msg) => setForwardMsg(msg)}
+                onDelete={(msg) => setDeleteConfirmMsg(msg)}
+                onScrollToMessage={scrollToMessage}
+              />
+            </div>
+          ))}
+
+          <div ref={mediaBottomRef} className="h-0.5" />
+        </div>
+      )}
 
       {/* Плавающая кнопка прокрутки вниз к новым сообщениям */}
       {showScrollBottom && (
