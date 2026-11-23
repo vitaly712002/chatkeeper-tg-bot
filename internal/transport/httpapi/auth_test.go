@@ -19,7 +19,8 @@ func testServer() *Server {
 			JWTSecret:     "test-secret-key",
 			JWTTTL:        3600_000_000_000, // 1h в наносекундах
 		},
-		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		mediaSem: make(chan struct{}, 3),
+		log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 

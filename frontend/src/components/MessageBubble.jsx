@@ -296,18 +296,19 @@ function MediaView({ type, fileId, onPreviewMedia, autoLoad = false }) {
   if (type === 'photo') {
     return (
       <div
-        className="relative my-1.5 inline-block cursor-pointer group"
+        className="relative my-1.5 inline-block cursor-pointer group min-w-[180px] min-h-[130px] rounded-xl overflow-hidden bg-slate-900/40"
         onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type) })}
         title="Нажмите для полноэкранного просмотра"
       >
         {loading && (
-          <div className="w-48 h-36 rounded-xl bg-slate-900/60 flex items-center justify-center text-xs text-slate-400 animate-pulse">
+          <div className="absolute inset-0 rounded-xl bg-slate-900/60 flex items-center justify-center text-xs text-slate-400 animate-pulse z-10">
             <Loader2 className="w-4 h-4 animate-spin text-indigo-400 mr-2" /> Загрузка…
           </div>
         )}
         <img
           src={url}
           alt={labelFor(type)}
+          loading="lazy"
           ref={(el) => {
             if (el && el.complete && loading) {
               setLoading(false);
@@ -315,11 +316,9 @@ function MediaView({ type, fileId, onPreviewMedia, autoLoad = false }) {
           }}
           onLoad={() => setLoading(false)}
           onError={() => setLoading(false)}
-          className={`rounded-xl max-h-72 w-auto object-cover hover:opacity-95 transition-all shadow-md group-hover:ring-2 group-hover:ring-indigo-500/50 ${
-            loading ? 'hidden' : 'block'
-          }`}
+          className="rounded-xl max-h-72 w-auto object-cover hover:opacity-95 transition-all shadow-md group-hover:ring-2 group-hover:ring-indigo-500/50 block"
         />
-        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center pointer-events-none z-20">
           <span className="p-2 rounded-full bg-slate-900/80 text-white backdrop-blur-sm shadow-lg">
             <Maximize2 className="w-4 h-4" />
           </span>

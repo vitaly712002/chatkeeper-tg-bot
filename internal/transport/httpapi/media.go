@@ -33,7 +33,17 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2. Если на диске нет — запрашиваем у серверов Telegram
+	// 2. Если на диске нет — запрашиваем у серверов Telegram через семафор в памяти (не более 3 параллельно)
+	if s.mediaSem != nil {
+		select {
+		case s.mediaSem <- struct{}{}:
+			defer func() { <-s.mediaSem }()
+		case <-r.Context().Done():
+			writeError(w, http.StatusRequestTimeout, "Таймаут ожидания очереди медиа")
+			return
+		}
+	}
+
 	file, err := s.bot.GetFile(r.Context(), &bot.GetFileParams{FileID: fileID})
 	if err != nil {
 		s.log.Error("media GetFile", "err", err)
@@ -54,6 +64,11 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		s.log.Warn("telegram rate limit 429", "file_id", fileID)
+		writeError(w, http.StatusTooManyRequests, "Лимит запросов Telegram, повторите позже")
+		return
+	}
 	if resp.StatusCode != http.StatusOK {
 		writeError(w, http.StatusNotFound, "Файл недоступен")
 		return

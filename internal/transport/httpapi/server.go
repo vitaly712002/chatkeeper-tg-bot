@@ -21,18 +21,27 @@ import (
 
 // Server держит зависимости API и сам http.Server.
 type Server struct {
-	cfg   config.Config
-	vault *service.Vault
-	bot   *bot.Bot
-	media *service.MediaStore
-	hub   *Hub
-	log   *slog.Logger
-	http  *http.Server
+	cfg      config.Config
+	vault    *service.Vault
+	bot      *bot.Bot
+	media    *service.MediaStore
+	hub      *Hub
+	log      *slog.Logger
+	http     *http.Server
+	mediaSem chan struct{} // семафор ограничения одновременных запросов к серверам Telegram (в памяти)
 }
 
 // New собирает маршруты и возвращает готовый сервер.
 func New(cfg config.Config, vault *service.Vault, b *bot.Bot, media *service.MediaStore, hub *Hub, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, vault: vault, bot: b, media: media, hub: hub, log: log}
+	s := &Server{
+		cfg:      cfg,
+		vault:    vault,
+		bot:      b,
+		media:    media,
+		hub:      hub,
+		log:      log,
+		mediaSem: make(chan struct{}, 3), // не более 3 одновременных скачиваний из Telegram
+	}
 
 	mux := http.NewServeMux()
 
