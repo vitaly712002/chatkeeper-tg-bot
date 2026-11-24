@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Pencil } from 'lucide-react';
 import { getMessageEdits } from '../api';
+import { fmtDateTime, fmtFullDateTime } from '../utils';
 
 // Модальное окно с историей правок сообщения.
 // Ожидаемая форма ответа API: массив версий, от старой к новой:
@@ -60,8 +61,11 @@ export default function EditHistory({ message, onClose }) {
                       : 'border-slate-700/60 bg-slate-800/40'
                   }`}
                 >
-                  <div className="text-[11px] uppercase tracking-wide mb-1 text-slate-500">
-                    {isCurrent ? 'Текущая версия' : `Версия ${i + 1}`} · {fmtTime(v.edited_at)}
+                  <div
+                    className="text-[11px] uppercase tracking-wide mb-1 text-slate-500"
+                    title={fmtFullDateTime(v.edited_at)}
+                  >
+                    {isCurrent ? 'Текущая версия' : `Версия ${i + 1}`} · {fmtDateTime(v.edited_at)}
                   </div>
                   <div className="text-sm text-slate-100 whitespace-pre-wrap break-words">
                     {v.text || <span className="italic text-slate-500">[пусто]</span>}
@@ -73,11 +77,4 @@ export default function EditHistory({ message, onClose }) {
       </div>
     </div>
   );
-}
-
-function fmtTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { MessageSquare, User, Trash2, Users, ChevronDown, ExternalLink } from 'lucide-react';
-import { parseTelegramName, getTelegramLinks } from '../utils';
+import { parseTelegramName, getTelegramLinks, fmtFullDateTime } from '../utils';
 
 // Список диалогов выбранного пользователя / центральная колонка / мобильный главный экран.
 export default function ChatList({
@@ -143,6 +143,7 @@ export default function ChatList({
                       className={`text-[10px] sm:text-[11px] shrink-0 ${
                         hasUnread ? 'text-indigo-400 font-semibold' : 'text-slate-400'
                       }`}
+                      title={fmtFullDateTime(chat.last_at)}
                     >
                       {fmtShort(chat.last_at)}
                     </span>
@@ -195,7 +196,11 @@ function fmtShort(iso) {
   if (Number.isNaN(d.getTime())) return '';
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
-  return sameDay
-    ? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  if (sameDay) {
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  }
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return sameYear
+    ? d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+    : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }

@@ -19,7 +19,7 @@ import {
   Pause,
 } from 'lucide-react';
 import { getMediaUrl } from '../api';
-import { parseTelegramName } from '../utils';
+import { parseTelegramName, fmtDateTime, fmtFullDateTime } from '../utils';
 import StickerMedia from './StickerMedia';
 
 // Один «пузырь» сообщения. Ожидаемая форма:
@@ -136,6 +136,7 @@ export default function MessageBubble({
             fileId={msg.file_id}
             onPreviewMedia={onPreviewMedia}
             autoLoad={autoLoadMedia}
+            sentAt={msg.sent_at}
           />
         )}
 
@@ -213,7 +214,12 @@ export default function MessageBubble({
                 <Trash2 className="w-3 h-3" /> удалено
               </span>
             )}
-            <span>{fmtTime(msg.sent_at)}</span>
+            <span
+              className="whitespace-nowrap select-none"
+              title={fmtFullDateTime(msg.sent_at)}
+            >
+              {fmtDateTime(msg.sent_at)}
+            </span>
             {outgoing && !deleted && (
               <span className="inline-flex items-center ml-0.5">
                 {msg.is_read ? (
@@ -238,7 +244,7 @@ export default function MessageBubble({
 
 // Отображение медиа. По умолчанию ленивое: показывается плашка с кнопкой просмотра,
 // и только при клике медиа запрашивается с сервера (если не передан autoLoad=true).
-function MediaView({ type, fileId, onPreviewMedia, autoLoad = false }) {
+function MediaView({ type, fileId, onPreviewMedia, autoLoad = false, sentAt = null }) {
   const [isLoaded, setIsLoaded] = useState(autoLoad);
   const [loading, setLoading] = useState(autoLoad);
   const url = getMediaUrl(fileId);
@@ -288,7 +294,7 @@ function MediaView({ type, fileId, onPreviewMedia, autoLoad = false }) {
       <StickerMedia
         url={url}
         fileId={fileId}
-        onPreviewMedia={onPreviewMedia}
+        onPreviewMedia={(m) => onPreviewMedia && onPreviewMedia({ ...m, sentAt })}
       />
     );
   }
@@ -297,7 +303,7 @@ function MediaView({ type, fileId, onPreviewMedia, autoLoad = false }) {
     return (
       <div
         className="relative my-1.5 inline-block cursor-pointer group min-w-[180px] min-h-[130px] rounded-xl overflow-hidden bg-slate-900/40"
-        onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type) })}
+        onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type), sentAt })}
         title="Нажмите для полноэкранного просмотра"
       >
         {loading && (
@@ -338,7 +344,7 @@ function MediaView({ type, fileId, onPreviewMedia, autoLoad = false }) {
         />
         <button
           type="button"
-          onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type) })}
+          onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type), sentAt })}
           className="absolute top-2 right-2 p-1.5 rounded-lg bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-900 transition-all shadow opacity-0 group-hover:opacity-100"
           title="Полноэкранный просмотр"
         >
@@ -360,7 +366,7 @@ function MediaView({ type, fileId, onPreviewMedia, autoLoad = false }) {
   return (
     <button
       type="button"
-      onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type) })}
+      onClick={() => onPreviewMedia && onPreviewMedia({ type, fileId, url, title: labelFor(type), sentAt })}
       className="inline-flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200 my-1 px-3 py-2 rounded-xl bg-slate-900/60 border border-slate-700/60 hover:border-indigo-500/50 transition-colors"
       title="Просмотр и скачивание документа"
     >
@@ -571,11 +577,4 @@ function VoiceMessagePlayer({ url, fileId }) {
       </div>
     </div>
   );
-}
-
-function fmtTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }

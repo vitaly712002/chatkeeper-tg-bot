@@ -70,6 +70,13 @@ func (r *Runner) tryRescueMedia(ctx context.Context, conn gen.BusinessConnection
 	var targetRecipient string
 	if targetIsOutgoing {
 		targetRecipient = partner
+		if targetSenderName == "" || targetSenderName == "Неизвестный" {
+			if conn.UserName != nil && *conn.UserName != "" {
+				targetSenderName = *conn.UserName
+			} else {
+				targetSenderName = "Вы"
+			}
+		}
 	} else if conn.UserName != nil && *conn.UserName != "" {
 		targetRecipient = *conn.UserName
 	} else {
@@ -96,11 +103,20 @@ func (r *Runner) tryRescueMedia(ctx context.Context, conn gen.BusinessConnection
 			LocalPath:     savedPath,
 			SentAt:        sentAt,
 		}
-		if _, err := r.vault.SaveMessage(ctx, in); err != nil {
+		msgView, err := r.vault.SaveMessage(ctx, in)
+		if err != nil {
 			r.log.Error("не удалось сохранить спасённое сообщение в базу", "err", err)
+			return
 		}
 		if err := r.vault.SetMessageLocalPath(ctx, media.fileID, savedPath); err != nil {
 			r.log.Error("не удалось привязать local_path к сообщению", "err", err)
+		}
+		if r.hub != nil {
+			r.hub.Broadcast("message_created", map[string]any{
+				"connection_id": conn.ID,
+				"chat_id":       chatID,
+				"message":       msgView,
+			})
 		}
 	}
 

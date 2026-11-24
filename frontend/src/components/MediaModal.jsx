@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Download, ExternalLink, FileText, Mic, Film, Image as ImageIcon, Smile, Loader2 } from 'lucide-react';
 import StickerMedia from './StickerMedia';
+import { fmtDateTime, fmtFullDateTime } from '../utils';
 
 // Модальное окно (лайтбокс) для просмотра медиафайлов без принудительного скачивания.
 export default function MediaModal({ media, onClose }) {
@@ -77,9 +78,19 @@ export default function MediaModal({ media, onClose }) {
             <Icon className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <span className="font-semibold text-sm sm:text-base text-slate-100 truncate block">
-              {title || 'Медиафайл'}
-            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-sm sm:text-base text-slate-100 truncate block">
+                {title || 'Медиафайл'}
+              </span>
+              {media.sentAt && (
+                <span
+                  className="text-xs text-slate-300 bg-slate-800/90 border border-slate-700/60 px-2 py-0.5 rounded-full shrink-0"
+                  title={fmtFullDateTime(media.sentAt)}
+                >
+                  {fmtDateTime(media.sentAt)}
+                </span>
+              )}
+            </div>
             <span className="text-xs text-slate-400 hidden sm:inline">({defaultFilename})</span>
           </div>
         </div>

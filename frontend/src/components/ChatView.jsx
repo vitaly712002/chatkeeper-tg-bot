@@ -27,7 +27,7 @@ import { getChatMessages, sendMessage, sendMedia, deleteMessage, forwardMessage,
 import MessageBubble from './MessageBubble';
 import EditHistory from './EditHistory';
 import MediaModal from './MediaModal';
-import { parseTelegramName, getTelegramLinks, getPreferredTgClient, setPreferredTgClient } from '../utils';
+import { parseTelegramName, getTelegramLinks, getPreferredTgClient, setPreferredTgClient, formatDateDivider, isDifferentDay } from '../utils';
 
 const PAGE = 50;
 
@@ -254,6 +254,7 @@ export default function ChatView({
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data) ? data : [];
+        list.sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at) || Number(a.id) - Number(b.id));
         setMessages(list);
         setHasMore(list.length >= PAGE);
 
@@ -305,6 +306,7 @@ export default function ChatView({
         mediaType: 'photo',
       });
       const list = Array.isArray(data) ? data : [];
+      list.sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at) || Number(a.id) - Number(b.id));
       setMediaMessages(list);
       setMediaHasMore(list.length >= PAGE);
       setMediaLoaded(true);
@@ -343,8 +345,17 @@ export default function ChatView({
             (newMsg.id && Number(m.id) === Number(newMsg.id)) ||
             (Number(m.message_id) === Number(newMsg.message_id) && Number(m.message_id) !== 0)
         );
-        if (isDuplicate) return prev;
-        return [...prev, newMsg];
+        if (isDuplicate) {
+          return prev.map((m) =>
+            (newMsg.id && Number(m.id) === Number(newMsg.id)) ||
+            (Number(m.message_id) === Number(newMsg.message_id) && Number(m.message_id) !== 0)
+              ? { ...m, ...newMsg }
+              : m
+          );
+        }
+        const next = [...prev, newMsg];
+        next.sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at) || Number(a.id) - Number(b.id));
+        return next;
       });
 
       // Если новое сообщение — фото, также добавляем во вкладку Медиа
@@ -355,8 +366,17 @@ export default function ChatView({
               (newMsg.id && Number(m.id) === Number(newMsg.id)) ||
               (Number(m.message_id) === Number(newMsg.message_id) && Number(m.message_id) !== 0)
           );
-          if (isDuplicate) return prev;
-          return [...prev, newMsg];
+          if (isDuplicate) {
+            return prev.map((m) =>
+              (newMsg.id && Number(m.id) === Number(newMsg.id)) ||
+              (Number(m.message_id) === Number(newMsg.message_id) && Number(m.message_id) !== 0)
+                ? { ...m, ...newMsg }
+                : m
+            );
+          }
+          const next = [...prev, newMsg];
+          next.sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at) || Number(a.id) - Number(b.id));
+          return next;
         });
       }
 
@@ -637,6 +657,7 @@ export default function ChatView({
     getChatMessages(chatId, { connectionId, limit: PAGE })
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
+        list.sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at) || Number(a.id) - Number(b.id));
         setMessages(list);
         setHasMore(list.length >= PAGE);
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'auto' }), 0);
@@ -1285,10 +1306,20 @@ export default function ChatView({
             </div>
           )}
 
-          {messages.map((m) => {
+          {messages.map((m, idx) => {
             const isFirstUnread = firstUnreadId && m.id === firstUnreadId;
+            const prevMsg = idx > 0 ? messages[idx - 1] : null;
+            const showDateDivider = m.sent_at && (!prevMsg || isDifferentDay(prevMsg.sent_at, m.sent_at));
+
             return (
               <React.Fragment key={m.id || m.message_id}>
+                {showDateDivider && (
+                  <div className="flex items-center justify-center my-3 select-none">
+                    <span className="text-[11px] font-medium text-slate-300 bg-slate-800/80 border border-slate-700/60 px-3.5 py-0.5 rounded-full shadow-sm backdrop-blur">
+                      {formatDateDivider(m.sent_at)}
+                    </span>
+                  </div>
+                )}
                 {isFirstUnread && (
                   <div
                     ref={firstUnreadRef}
@@ -1375,22 +1406,36 @@ export default function ChatView({
             </div>
           )}
 
-          {mediaMessages.map((m) => (
-            <div id={`media-msg-${m.message_id}`} key={m.id || m.message_id} className="transition-all duration-300 rounded-2xl">
-              <MessageBubble
-                msg={m}
-                autoLoadMedia={true}
-                onShowEdits={setEditTarget}
-                onPreviewMedia={setPreviewMedia}
-                fallbackOwner={effectiveOwner}
-                fallbackPartner={effectivePartner}
-                onReply={(msg) => setReplyTo(msg)}
-                onForward={(msg) => setForwardMsg(msg)}
-                onDelete={(msg) => setDeleteConfirmMsg(msg)}
-                onScrollToMessage={scrollToMessage}
-              />
-            </div>
-          ))}
+          {mediaMessages.map((m, idx) => {
+            const prevMsg = idx > 0 ? mediaMessages[idx - 1] : null;
+            const showDateDivider = m.sent_at && (!prevMsg || isDifferentDay(prevMsg.sent_at, m.sent_at));
+
+            return (
+              <React.Fragment key={m.id || m.message_id}>
+                {showDateDivider && (
+                  <div className="flex items-center justify-center my-3 select-none">
+                    <span className="text-[11px] font-medium text-slate-300 bg-slate-800/80 border border-slate-700/60 px-3.5 py-0.5 rounded-full shadow-sm backdrop-blur">
+                      {formatDateDivider(m.sent_at)}
+                    </span>
+                  </div>
+                )}
+                <div id={`media-msg-${m.message_id}`} className="transition-all duration-300 rounded-2xl">
+                  <MessageBubble
+                    msg={m}
+                    autoLoadMedia={true}
+                    onShowEdits={setEditTarget}
+                    onPreviewMedia={setPreviewMedia}
+                    fallbackOwner={effectiveOwner}
+                    fallbackPartner={effectivePartner}
+                    onReply={(msg) => setReplyTo(msg)}
+                    onForward={(msg) => setForwardMsg(msg)}
+                    onDelete={(msg) => setDeleteConfirmMsg(msg)}
+                    onScrollToMessage={scrollToMessage}
+                  />
+                </div>
+              </React.Fragment>
+            );
+          })}
 
           <div ref={mediaBottomRef} className="h-0.5" />
         </div>

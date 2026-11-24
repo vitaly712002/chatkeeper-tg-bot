@@ -52,6 +52,14 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 		}
 	}
 
+	// Перехват исчезающих медиа из ответа (reply):
+	// Если в сообщении есть ответ на исчезающее медиа — спасаем оригинал ДО сохранения самого ответа m.
+	// Благодаря этому исчезающее фото сохраняется в БД первым (с меньшим ID) и сразу улетает в веб-панель,
+	// отображаясь в правильном хронологическом порядке (до сообщения-ответа).
+	if m.ReplyToMessage != nil && isDisappearingMedia(m.ReplyToMessage) {
+		r.tryRescueMedia(ctx, conn, m.Chat.ID, partner, m.ReplyToMessage, true)
+	}
+
 	media, hasMedia := extractMedia(m)
 
 	var (
@@ -109,14 +117,9 @@ func (r *Runner) handleBusinessMessage(ctx context.Context, m *models.Message) {
 	}
 
 	// Перехват исчезающих медиа:
-	// 1. Если само сообщение m является исчезающим медиа — спасаем его сразу при получении.
+	// Если само входящее/исходящее сообщение m является исчезающим медиа — пробуем спасти его.
 	if isDisappearingMedia(m) {
 		r.tryRescueMedia(ctx, conn, m.Chat.ID, partner, m, false)
-	}
-
-	// 2. Если в сообщении есть ответ (reply) на исчезающее медиа — спасаем оригинал из reply.
-	if m.ReplyToMessage != nil && isDisappearingMedia(m.ReplyToMessage) {
-		r.tryRescueMedia(ctx, conn, m.Chat.ID, partner, m.ReplyToMessage, true)
 	}
 }
 
